@@ -71,21 +71,24 @@ Respond ONLY as JSON with keys:
   headline: short human sentence, under 90 chars, no em dashes
   reason: 2 to 3 sentences of warm honest feedback, no em dashes`;
 
-    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model: "gemini-3.6-flash",
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          response_format: { type: "json_object" },
+        }),
       },
-      body: JSON.stringify({
-        model: "gemini-3.6-flash",
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    });
+    );
 
     if (!res.ok) {
       const text = await res.text();
@@ -108,10 +111,10 @@ Respond ONLY as JSON with keys:
       raw === "green"
         ? "green"
         : raw === "red_block" || raw === "red-block" || raw === "block"
-        ? "red_block"
-        : raw === "red_flag" || raw === "red-flag" || raw === "flag" || raw === "red"
-        ? "red_flag"
-        : "yellow";
+          ? "red_block"
+          : raw === "red_flag" || raw === "red-flag" || raw === "flag" || raw === "red"
+            ? "red_flag"
+            : "yellow";
 
     // A Golden Ticket turns a red flag into a yellow flag: the applicant still
     // needs human review, but they are not turned away at the river.
@@ -126,19 +129,19 @@ Respond ONLY as JSON with keys:
       verdict === "green"
         ? "Your reflection lands with heart."
         : verdict === "yellow"
-        ? "Your reflection needs a human set of eyes."
-        : verdict === "red_flag"
-        ? "Something was shared, but it needs a closer look."
-        : "This reflection is not ready for the river yet.";
+          ? "Your reflection needs a human set of eyes."
+          : verdict === "red_flag"
+            ? "Something was shared, but it needs a closer look."
+            : "This reflection is not ready for the river yet.";
 
     const fallbackReason =
       verdict === "green"
         ? "A mentor will read your words with care and meet you at the first bend of the river."
         : verdict === "yellow"
-        ? "A mentor will read your reflection with their own eyes before you continue."
-        : verdict === "red_flag"
-        ? "You wrote something, and you can continue, but an admin will review your reflection because it did not fully meet the criteria."
-        : "The reflection did not show meaningful engagement with the ceremony. Please try again with a few honest sentences.";
+          ? "A mentor will read your reflection with their own eyes before you continue."
+          : verdict === "red_flag"
+            ? "You wrote something, and you can continue, but an admin will review your reflection because it did not fully meet the criteria."
+            : "The reflection did not show meaningful engagement with the ceremony. Please try again with a few honest sentences.";
 
     return {
       verdict,
