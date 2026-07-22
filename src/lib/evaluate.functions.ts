@@ -50,7 +50,7 @@ Judge MEANING and RELEVANCE, not length. A short but sincere reflection can be g
 Return one of four verdicts:
 - "green": Meaningful and relevant. Shows real motivation, curiosity, care, lived experience, or interest in mentoring, imagination, community or custodianship. Accept straight away.
 - "yellow": Ambiguous, generic, or unclear motivation, but not hostile. A human should verify.
-- "red_flag": Something was written but it is insufficient, off-topic, or does not meet the criteria. The applicant CAN still proceed, and an admin will be notified to review.
+- "red_flag": Something was written but it is insufficient, off-topic, or does not meet the criteria. The applicant CANNOT proceed, and an admin will be notified to review. If the applicant has a Golden Ticket, this verdict is treated as yellow.
 - "red_block": Completely irrelevant, empty in spirit, spam, gibberish, hostile, or a clear refusal to engage. The applicant CANNOT proceed and must resubmit.
 
 Be warm but honest. Never use em dashes or en dashes in any output text.`;
@@ -78,7 +78,7 @@ Respond ONLY as JSON with keys:
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.6-flash",
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
