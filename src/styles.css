@@ -166,10 +166,26 @@
   animation: fade-in-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@utility animate-pop {
+  animation: pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-step-forward,
   .animate-step-back,
-  .animate-fade-in {
+  .animate-fade-in,
+  .animate-pop {
     animation: none;
   }
 }
