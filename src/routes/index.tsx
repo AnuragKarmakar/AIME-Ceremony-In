@@ -233,9 +233,21 @@ function CeremonyIn() {
     }
   };
 
+  // The identity badge (name + Visa Path) appears in the header once the
+  // applicant has moved past the "Who you are" step, replacing the small
+  // card that used to sit above the reflection input.
+  const identityIdx = STEPS.findIndex((s) => s.key === "identity");
+  const showIdentityBadge = stepIdx > identityIdx;
+  const fullName = `${form.firstName} ${form.lastName}`.trim();
+  const pathName = PATHS.find((p) => p.id === form.path)?.name ?? null;
+
   return (
     <main className="mx-auto flex min-h-dvh max-w-5xl flex-col px-5 py-8 sm:py-12">
-      <Header onHome={() => goTo("welcome")} />
+      <Header
+        onHome={() => goTo("welcome")}
+        name={showIdentityBadge ? fullName : null}
+        pathName={showIdentityBadge ? pathName : null}
+      />
       <ProgressIndicator current={stepIdx} />
 
       <section className="mt-8 flex-1 overflow-x-clip">
@@ -268,9 +280,6 @@ function CeremonyIn() {
                   return { ...f, beings: next };
                 })
               }
-              firstName={form.firstName}
-              lastName={form.lastName}
-              pathName={PATHS.find((p) => p.id === form.path)?.name ?? null}
             />
           )}
           {step === "quiz" && (
@@ -304,14 +313,23 @@ function CeremonyIn() {
 }
 
 
-function Header({ onHome }: { onHome: () => void }) {
+function Header({
+  onHome,
+  name,
+  pathName,
+}: {
+  onHome: () => void;
+  name?: string | null;
+  pathName?: string | null;
+}) {
+  const hasBadge = Boolean(name || pathName);
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between gap-3">
       <button
         type="button"
         onClick={onHome}
         aria-label="Return to start"
-        className="group flex items-center gap-2 rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-primary"
+        className="group flex shrink-0 items-center gap-2 rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-primary"
       >
         <div className="grid h-9 w-9 place-items-center rounded-full bg-sunrise text-primary-foreground shadow-warm transition group-hover:brightness-110">
           <Sparkles className="h-4 w-4" />
@@ -325,9 +343,22 @@ function Header({ onHome }: { onHome: () => void }) {
           </div>
         </div>
       </button>
-      <div className="hidden text-xs text-muted-foreground sm:block">
-        A warm welcome, not a form.
-      </div>
+      {hasBadge ? (
+        <div className="animate-fade-in min-w-0 rounded-2xl border border-border bg-muted/40 px-4 py-2 text-right">
+          {name && (
+            <div className="truncate font-display text-sm text-foreground">{name}</div>
+          )}
+          {pathName && (
+            <div className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary">
+              {pathName}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="hidden text-xs text-muted-foreground sm:block">
+          A warm welcome, not a form.
+        </div>
+      )}
     </div>
   );
 }
@@ -592,36 +623,15 @@ function StoryScreen({
   setStory,
   beings,
   setBeing,
-  firstName,
-  lastName,
-  pathName,
 }: {
   story: string;
   setStory: (v: string) => void;
   beings: [Being, Being, Being, Being];
   setBeing: (i: number, patch: Partial<Being>) => void;
-  firstName: string;
-  lastName: string;
-  pathName: string | null;
 }) {
   const namedCount = beings.filter((b) => b.name.trim().length > 0).length;
-  const fullName = `${firstName} ${lastName}`.trim();
   return (
     <div className="ceremony-card mx-auto max-w-2xl p-7 sm:p-10">
-      {(fullName || pathName) && (
-        <div className="mb-5 flex justify-end">
-          <div className="rounded-2xl border border-border bg-muted/40 px-4 py-2 text-right">
-            {fullName && (
-              <div className="font-display text-sm text-foreground">{fullName}</div>
-            )}
-            {pathName && (
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary">
-                {pathName}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
       <SectionHeader
         eyebrow="Your reflection"
         title="What brought you to the river?"
