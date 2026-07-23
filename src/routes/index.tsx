@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { evaluateStory, type EvaluationResult } from "@/lib/evaluate.functions";
 import { LanguageCombobox } from "@/components/LanguageCombobox";
@@ -20,7 +20,6 @@ import {
   Check,
   Lock,
   CircleDot,
-  PartyPopper,
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
@@ -102,6 +101,13 @@ const PATHS: {
 
 type Being = { name: string; note: string };
 
+const BEING_PLACEHOLDERS = [
+  "e.g. My grandmother Nan",
+  "e.g. A future child not yet born",
+  "e.g. The river near my home",
+  "e.g. Octavia Butler",
+];
+
 type FormState = {
   goldenTicket: string;
   path: PathId | null;
@@ -128,7 +134,10 @@ function CeremonyIn() {
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
   }, [stepIdx]);
-  const [form, setForm] = useState<FormState>({
+  // Lazy initializer: the object literal below (including the beings array)
+  // is only ever constructed once, on mount, instead of being rebuilt and
+  // discarded on every re-render.
+  const [form, setForm] = useState<FormState>(() => ({
     goldenTicket: "",
     path: null,
     firstName: "",
@@ -145,7 +154,7 @@ function CeremonyIn() {
       { name: "", note: "" },
     ],
     quizAnswers: DEFAULT_QUIZ_ANSWERS,
-  });
+  }));
 
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [evaluating, setEvaluating] = useState(false);
@@ -155,26 +164,31 @@ function CeremonyIn() {
   const setField = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  const canAdvance = useMemo(() => {
-    if (step === "path") return form.path !== null;
-    if (step === "identity")
-      return Boolean(
-        form.firstName.trim() &&
-          form.lastName.trim() &&
-          /\S+@\S+\.\S+/.test(form.email) &&
-          form.motherTongue.trim() &&
-          form.city.trim() &&
-          form.country.trim(),
-      );
+  // Not memoized: every check here is a handful of cheap string ops, and
+  // `form` changes on every keystroke anyway (the only step where this
+  // matters), so a useMemo would never hit its cache in practice.
+  let canAdvance = true;
+  if (step === "path") canAdvance = form.path !== null;
+  else if (step === "identity")
+    canAdvance = Boolean(
+      form.firstName.trim() &&
+        form.lastName.trim() &&
+        /\S+@\S+\.\S+/.test(form.email) &&
+        form.motherTongue.trim() &&
+        form.city.trim() &&
+        form.country.trim(),
+    );
+  else if (step === "story")
+    canAdvance =
+      form.story.trim().length >= 10 &&
+      form.beings.every((b) => b.name.trim().length > 0);
+  else if (step === "result") canAdvance = evaluation?.canProceed !== false;
 
-    if (step === "story")
-      return (
-        form.story.trim().length >= 10 &&
-        form.beings.every((b) => b.name.trim().length > 0)
-      );
-    if (step === "result") return evaluation?.canProceed !== false;
-    return true;
-  }, [step, form, evaluation]);
+  // Stable reference so the memoized QuizQuestionRow children only re-render
+  // when their own value changes, not on every sibling slider drag.
+  const setQuizAnswer = useCallback((id: string, v: number) => {
+    setForm((f) => ({ ...f, quizAnswers: { ...f.quizAnswers, [id]: v } }));
+  }, []);
 
   const goTo = (key: StepKey) => {
     const target = STEPS.findIndex((s) => s.key === key);
@@ -262,9 +276,7 @@ function CeremonyIn() {
           {step === "quiz" && (
             <QuizScreen
               answers={form.quizAnswers}
-              setAnswer={(id, v) =>
-                setForm((f) => ({ ...f, quizAnswers: { ...f.quizAnswers, [id]: v } }))
-              }
+              setAnswer={setQuizAnswer}
               onBack={back}
               onFinish={finishQuiz}
               finishing={evaluating}
@@ -593,12 +605,6 @@ function StoryScreen({
   pathName: string | null;
 }) {
   const namedCount = beings.filter((b) => b.name.trim().length > 0).length;
-  const beingPlaceholders = [
-    "e.g. My grandmother Nan",
-    "e.g. A future child not yet born",
-    "e.g. The river near my home",
-    "e.g. Octavia Butler",
-  ];
   const fullName = `${firstName} ${lastName}`.trim();
   return (
     <div className="ceremony-card mx-auto max-w-2xl p-7 sm:p-10">
@@ -677,7 +683,7 @@ function StoryScreen({
                   <input
                     value={b.name}
                     onChange={(e) => setBeing(i, { name: e.target.value })}
-                    placeholder={beingPlaceholders[i]}
+                    placeholder={BEING_PLACEHOLDERS[i]}
                     className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
                   />
                 </div>
@@ -1078,7 +1084,7 @@ function Detail({ k, v }: { k: string; v: string }) {
       <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
         {k}
       </dt>
-      <dd className="text-sm text-foreground">{v || "\u2014".replace("\u2014", "not shared")}</dd>
+      <dd className="text-sm text-foreground">{v || "not shared"}</dd>
     </div>
   );
 }
