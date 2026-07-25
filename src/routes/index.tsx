@@ -20,6 +20,7 @@ import {
   Check,
   Lock,
   CircleDot,
+  Loader2,
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
@@ -30,15 +31,18 @@ export const Route = createFileRoute("/")({
   component: CeremonyIn,
 });
 
-type StepKey = "welcome" | "path" | "identity" | "story" | "quiz" | "result" | "journey";
+type StepKey = "welcome" | "path" | "identity" | "story" | "result" | "quiz" | "journey";
 
+// The Ceremony (result) step sits before the quiz on purpose: an applicant
+// who doesn't pass the reflection evaluation (canProceed === false) never
+// reaches the Relational Check-in survey.
 const STEPS: { key: StepKey; label: string }[] = [
   { key: "welcome", label: "Welcome" },
   { key: "path", label: "Visa Path" },
   { key: "identity", label: "Who you are" },
   { key: "story", label: "Your story" },
-  { key: "quiz", label: "Relational Check-in" },
   { key: "result", label: "Ceremony" },
+  { key: "quiz", label: "Relational Check-in" },
   { key: "journey", label: "River Run" },
 ];
 
@@ -181,7 +185,8 @@ function CeremonyIn() {
   else if (step === "story")
     canAdvance =
       form.story.trim().length >= 10 &&
-      form.beings.every((b) => b.name.trim().length > 0);
+      form.beings.every((b) => b.name.trim().length > 0) &&
+      !evaluating;
   else if (step === "result") canAdvance = evaluation?.canProceed !== false;
 
   // Stable reference so the memoized QuizQuestionRow children only re-render
@@ -196,41 +201,41 @@ function CeremonyIn() {
     setStepIdx(target);
   };
 
-  const next = () => {
+  const next = async () => {
     setDirection("forward");
+    if (step === "story") {
+      setEvaluating(true);
+      setEvalError(null);
+      try {
+        const result = await runEvaluate({
+          data: {
+            story: form.story,
+            path: form.path,
+            name: `${form.firstName} ${form.lastName}`.trim(),
+            goldenTicket: form.goldenTicket,
+            beings: form.beings
+              .map((b) =>
+                b.note.trim() ? `${b.name.trim()} (${b.note.trim()})` : b.name.trim(),
+              )
+              .filter(Boolean),
+          },
+        });
+        setEvaluation(result);
+        goTo("result");
+      } catch (e) {
+        setEvalError(
+          e instanceof Error ? e.message : "Something went wrong while reading your reflection.",
+        );
+      } finally {
+        setEvaluating(false);
+      }
+      return;
+    }
     setStepIdx((i) => Math.min(i + 1, STEPS.length - 1));
   };
   const back = () => {
     setDirection("back");
     setStepIdx((i) => Math.max(i - 1, 0));
-  };
-
-  const finishQuiz = async () => {
-    setEvaluating(true);
-    setEvalError(null);
-    try {
-      const result = await runEvaluate({
-        data: {
-          story: form.story,
-          path: form.path,
-          name: `${form.firstName} ${form.lastName}`.trim(),
-          goldenTicket: form.goldenTicket,
-          beings: form.beings
-            .map((b) =>
-              b.note.trim() ? `${b.name.trim()} (${b.note.trim()})` : b.name.trim(),
-            )
-            .filter(Boolean),
-        },
-      });
-      setEvaluation(result);
-      goTo("result");
-    } catch (e) {
-      setEvalError(
-        e instanceof Error ? e.message : "Something went wrong while reading your reflection.",
-      );
-    } finally {
-      setEvaluating(false);
-    }
   };
 
   // The identity badge (name + Visa Path) appears in the header once the
@@ -280,20 +285,15 @@ function CeremonyIn() {
                   return { ...f, beings: next };
                 })
               }
-            />
-          )}
-          {step === "quiz" && (
-            <QuizScreen
-              answers={form.quizAnswers}
-              setAnswer={setQuizAnswer}
-              onBack={back}
-              onFinish={finishQuiz}
-              finishing={evaluating}
+              evaluating={evaluating}
               error={evalError}
             />
           )}
           {step === "result" && (
             <ResultScreen form={form} evaluation={evaluation} />
+          )}
+          {step === "quiz" && (
+            <QuizScreen answers={form.quizAnswers} setAnswer={setQuizAnswer} onBack={back} onFinish={next} />
           )}
           {step === "journey" && <JourneyScreen form={form} />}
         </div>
@@ -306,6 +306,7 @@ function CeremonyIn() {
           onNext={next}
           isLast={stepIdx === STEPS.length - 1}
           step={step}
+          evaluating={evaluating}
         />
       )}
     </main>
@@ -623,11 +624,15 @@ function StoryScreen({
   setStory,
   beings,
   setBeing,
+  evaluating,
+  error,
 }: {
   story: string;
   setStory: (v: string) => void;
   beings: [Being, Being, Being, Being];
   setBeing: (i: number, patch: Partial<Being>) => void;
+  evaluating: boolean;
+  error: string | null;
 }) {
   const namedCount = beings.filter((b) => b.name.trim().length > 0).length;
   return (
@@ -644,7 +649,8 @@ function StoryScreen({
           onChange={(e) => setStory(e.target.value)}
           rows={8}
           placeholder="I keep noticing that..."
-          className="min-h-[180px] w-full resize-y rounded-2xl border border-input bg-background p-4 text-base leading-relaxed outline-none focus:border-primary"
+          disabled={evaluating}
+          className="min-h-[180px] w-full resize-y rounded-2xl border border-input bg-background p-4 text-base leading-relaxed outline-none focus:border-primary disabled:opacity-60"
         />
         <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
           <span>Written from the heart, not for the algorithm.</span>
@@ -694,14 +700,16 @@ function StoryScreen({
                     value={b.name}
                     onChange={(e) => setBeing(i, { name: e.target.value })}
                     placeholder={BEING_PLACEHOLDERS[i]}
-                    className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                    disabled={evaluating}
+                    className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-60"
                   />
                 </div>
                 <input
                   value={b.note}
                   onChange={(e) => setBeing(i, { note: e.target.value })}
                   placeholder="Why they walk with you (optional)"
-                  className="mt-2 w-full rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-xs text-muted-foreground outline-none focus:border-input focus:bg-background focus:text-foreground"
+                  disabled={evaluating}
+                  className="mt-2 w-full rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-xs text-muted-foreground outline-none focus:border-input focus:bg-background focus:text-foreground disabled:opacity-60"
                 />
               </div>
             ))}
@@ -710,6 +718,18 @@ function StoryScreen({
             Names are required. The notes are optional and yours to hold.
           </p>
         </div>
+
+        {evaluating && (
+          <div className="animate-fade-in mt-4 inline-flex items-center gap-2 rounded-full bg-primary-soft px-4 py-2 text-sm text-primary">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            A mentor spirit is reading your words...
+          </div>
+        )}
+        {error && !evaluating && (
+          <div className="animate-fade-in mt-4 rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1105,15 +1125,22 @@ function NavBar({
   onNext,
   isLast,
   step,
+  evaluating,
 }: {
   canAdvance: boolean;
   onBack: () => void;
   onNext: () => void;
   isLast: boolean;
   step: StepKey;
+  evaluating?: boolean;
 }) {
-  const nextLabel =
-    step === "result" ? "See River Run" : isLast ? "Done" : "Continue";
+  const nextLabel = evaluating
+    ? "Reading your words..."
+    : step === "story"
+    ? "See your Ceremony"
+    : isLast
+    ? "Done"
+    : "Continue";
   return (
     <div className="animate-fade-in sticky bottom-4 mt-10 flex items-center justify-between gap-3 rounded-full border border-border bg-card/90 px-3 py-2 backdrop-blur transition-all duration-300">
       <button
@@ -1129,8 +1156,9 @@ function NavBar({
           disabled={!canAdvance}
           className="inline-flex items-center gap-1.5 rounded-full bg-sunrise px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-warm transition disabled:cursor-not-allowed disabled:opacity-40"
         >
+          {evaluating && <Loader2 className="h-4 w-4 animate-spin" />}
           {nextLabel}
-          <ChevronRight className="h-4 w-4" />
+          {!evaluating && <ChevronRight className="h-4 w-4" />}
         </button>
       ) : (
         <span className="rounded-full bg-primary-soft px-4 py-2 text-sm font-medium text-primary">
