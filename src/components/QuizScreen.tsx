@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { QUIZ_SECTIONS, type QuizScale } from "@/lib/quiz.data";
 
@@ -8,15 +8,11 @@ export function QuizScreen({
   setAnswer,
   onBack,
   onFinish,
-  finishing,
-  error,
 }: {
   answers: Record<string, number>;
   setAnswer: (id: string, value: number) => void;
   onBack: () => void;
   onFinish: () => void;
-  finishing: boolean;
-  error: string | null;
 }) {
   const [sectionIdx, setSectionIdx] = useState(0);
   const [direction, setDirection] = useState<"forward" | "back">("forward");
@@ -75,31 +71,22 @@ export function QuizScreen({
         </div>
       </div>
 
-      {error && !finishing && (
-        <div className="animate-fade-in mt-6 rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-
       <QuizProgressDots total={QUIZ_SECTIONS.length} current={sectionIdx} />
 
       <div className="animate-fade-in sticky bottom-4 mt-6 flex items-center justify-between gap-3 rounded-full border border-border bg-card/90 px-3 py-2 backdrop-blur">
         <button
           onClick={goPrev}
-          disabled={finishing}
-          className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-secondary transition hover:bg-secondary-soft active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+          className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-secondary transition hover:bg-secondary-soft active:scale-[0.97]"
         >
           <ArrowLeft className="h-4 w-4" />
-          {isFirst ? "Back to your story" : "Previous"}
+          {isFirst ? "Back to your Ceremony" : "Previous"}
         </button>
         <button
           onClick={goNext}
-          disabled={finishing}
-          className="inline-flex items-center gap-1.5 rounded-full bg-sunrise px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-warm transition active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+          className="inline-flex items-center gap-1.5 rounded-full bg-sunrise px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-warm transition active:scale-[0.97]"
         >
-          {finishing && <Loader2 className="h-4 w-4 animate-spin" />}
-          {finishing ? "Reading your words..." : isLast ? "Complete Ceremony" : "Next"}
-          {!finishing && <ArrowRight className="h-4 w-4" />}
+          {isLast ? "See River Run" : "Next"}
+          <ArrowRight className="h-4 w-4" />
         </button>
       </div>
     </div>
