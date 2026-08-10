@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { evaluateStory, type EvaluationResult } from "@/lib/evaluate.functions";
+import { fetchVisaPaths, type VisaPathContent } from "@/lib/wagtail.functions";
 import { LanguageCombobox } from "@/components/LanguageCombobox";
 import { QuizScreen } from "@/components/QuizScreen";
 import { DEFAULT_QUIZ_ANSWERS } from "@/lib/quiz.data";
@@ -103,6 +105,22 @@ const PATHS: {
   },
 ];
 
+// Overlays editable copy (name/tagline/description/order) fetched from
+// Wagtail onto the hardcoded PATHS. Icon and hue always come from PATHS —
+// they're presentation, not CMS content. Falls back to PATHS untouched
+// whenever the CMS is unset, unreachable, or hasn't returned a given path
+// yet, so the app never shows a broken or empty Visa Path screen.
+function mergePaths(base: typeof PATHS, cms: VisaPathContent[] | null): typeof PATHS {
+  if (!cms || cms.length === 0) return base;
+  const bySlug = new Map(cms.map((c) => [c.slug, c]));
+  return [...base]
+    .map((p) => {
+      const c = bySlug.get(p.id);
+      return c ? { ...p, name: c.name, tagline: c.tagline, description: c.description } : p;
+    })
+    .sort((a, b) => (bySlug.get(a.id)?.order ?? 0) - (bySlug.get(b.id)?.order ?? 0));
+}
+
 type Being = { name: string; note: string };
 
 const BEING_PLACEHOLDERS = [
@@ -164,6 +182,14 @@ function CeremonyIn() {
   const [evaluating, setEvaluating] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
   const runEvaluate = useServerFn(evaluateStory);
+
+  const runFetchVisaPaths = useServerFn(fetchVisaPaths);
+  const { data: cmsVisaPaths } = useQuery({
+    queryKey: ["visa-paths"],
+    queryFn: () => runFetchVisaPaths(),
+    staleTime: 60_000,
+  });
+  const paths = mergePaths(PATHS, cmsVisaPaths ?? null);
 
   const setField = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -244,7 +270,7 @@ function CeremonyIn() {
   const identityIdx = STEPS.findIndex((s) => s.key === "identity");
   const showIdentityBadge = stepIdx > identityIdx;
   const fullName = `${form.firstName} ${form.lastName}`.trim();
-  const pathName = PATHS.find((p) => p.id === form.path)?.name ?? null;
+  const pathName = paths.find((p) => p.id === form.path)?.name ?? null;
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-5xl flex-col px-5 py-8 sm:py-12">
@@ -268,7 +294,7 @@ function CeremonyIn() {
             />
           )}
           {step === "path" && (
-            <PathScreen selected={form.path} onSelect={(p) => setField("path", p)} />
+            <PathScreen paths={paths} selected={form.path} onSelect={(p) => setField("path", p)} />
           )}
           {step === "identity" && (
             <IdentityScreen form={form} setField={setField} />
@@ -290,7 +316,7 @@ function CeremonyIn() {
             />
           )}
           {step === "result" && (
-            <ResultScreen form={form} evaluation={evaluation} />
+            <ResultScreen paths={paths} form={form} evaluation={evaluation} />
           )}
           {step === "quiz" && (
             <QuizScreen answers={form.quizAnswers} setAnswer={setQuizAnswer} onBack={back} onFinish={next} />
@@ -483,9 +509,11 @@ function WelcomeScreen({
 /* ------------------------- 2. Visa Path ------------------------- */
 
 function PathScreen({
+  paths,
   selected,
   onSelect,
 }: {
+  paths: typeof PATHS;
   selected: PathId | null;
   onSelect: (p: PathId) => void;
 }) {
@@ -497,7 +525,7 @@ function PathScreen({
         subtitle="Pick the one that fits today. You can carry more than one over time."
       />
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {PATHS.map(({ id, name, tagline, description, Icon, hue }) => {
+        {paths.map(({ id, name, tagline, description, Icon, hue }) => {
           const active = selected === id;
           return (
             <button
@@ -738,14 +766,16 @@ function StoryScreen({
 /* ------------------------- 4. Result ------------------------- */
 
 function ResultScreen({
+  paths,
   form,
   evaluation,
 }: {
+  paths: typeof PATHS;
   form: FormState;
   evaluation: EvaluationResult | null;
 }) {
   const [open, setOpen] = useState(false);
-  const path = PATHS.find((p) => p.id === form.path);
+  const path = paths.find((p) => p.id === form.path);
   const first = form.firstName.trim() || "friend";
 
   const verdict = evaluation?.verdict ?? "yellow";
