@@ -85,7 +85,7 @@ export function QuizScreen({
           onClick={goNext}
           className="inline-flex items-center gap-1.5 rounded-full bg-sunrise px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-warm transition active:scale-[0.97]"
         >
-          {isLast ? "See River Run" : "Next"}
+          {isLast ? "Continue" : "Next"}
           <ArrowRight className="h-4 w-4" />
         </button>
       </div>
