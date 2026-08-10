@@ -667,11 +667,10 @@ function StoryScreen({
                 Name four beings you bring with you.
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Not yourself. Four others whose presence walks beside you into
-                Imagination. They can be from your past, present, or future,
-                real or imagined, human or more than human. A river, an
-                ancestor, a child not yet born, a book that raised you, a dog,
-                a mountain, a mentor.
+                Not yourself. Four others whose presence walks beside you into Imagination. They can
+                be from your past, present, or future, real or imagined, human or more than human. A
+                river, an ancestor, a child not yet born, a book that raised you, a dog, a mountain,
+                a mentor.
               </p>
             </div>
             <div
@@ -688,10 +687,7 @@ function StoryScreen({
 
           <div className="mt-5 grid gap-3">
             {beings.map((b, i) => (
-              <div
-                key={i}
-                className="rounded-xl border border-border bg-card p-3 sm:p-4"
-              >
+              <div key={i} className="rounded-xl border border-border bg-card p-3 sm:p-4">
                 <div className="flex items-center gap-2">
                   <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-sunrise text-xs font-bold text-primary-foreground">
                     {i + 1}
@@ -707,7 +703,7 @@ function StoryScreen({
                 <input
                   value={b.note}
                   onChange={(e) => setBeing(i, { note: e.target.value })}
-                  placeholder="Why they walk with you (optional)"
+                  placeholder="Why they walk with you"
                   disabled={evaluating}
                   className="mt-2 w-full rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-xs text-muted-foreground outline-none focus:border-input focus:bg-background focus:text-foreground disabled:opacity-60"
                 />
@@ -721,8 +717,7 @@ function StoryScreen({
 
         {evaluating && (
           <div className="animate-fade-in mt-4 inline-flex items-center gap-2 rounded-full bg-primary-soft px-4 py-2 text-sm text-primary">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            A mentor spirit is reading your words...
+            <Loader2 className="h-4 w-4 animate-spin" />A mentor spirit is reading your words...
           </div>
         )}
         {error && !evaluating && (
