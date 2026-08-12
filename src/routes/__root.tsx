@@ -78,26 +78,45 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Ceremony-In · AIME IMAGI-NATION" },
-      { name: "description", content: "A warm, joyful onboarding into the AIME IMAGI-NATION mentoring movement." },
+      {
+        name: "description",
+        content: "A warm, joyful onboarding into the AIME IMAGI-NATION mentoring movement.",
+      },
       { name: "author", content: "AIME IMAGI-NATION" },
       { property: "og:title", content: "Ceremony-In · AIME IMAGI-NATION" },
-      { property: "og:description", content: "A warm, joyful onboarding into the AIME IMAGI-NATION mentoring movement." },
+      {
+        property: "og:description",
+        content: "A warm, joyful onboarding into the AIME IMAGI-NATION mentoring movement.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
 
       { name: "twitter:title", content: "Ceremony-In · AIME IMAGI-NATION" },
-      { name: "twitter:description", content: "A warm, joyful onboarding into the AIME IMAGI-NATION mentoring movement." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/6d76e4f2-d2fa-4f8b-8fa7-82021b228e8f/id-preview-d09f085a--428d1c65-d132-4d5c-ae95-b63678c58f73.lovable.app-1782920431113.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/6d76e4f2-d2fa-4f8b-8fa7-82021b228e8f/id-preview-d09f085a--428d1c65-d132-4d5c-ae95-b63678c58f73.lovable.app-1782920431113.png" },
+      {
+        name: "twitter:description",
+        content: "A warm, joyful onboarding into the AIME IMAGI-NATION mentoring movement.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/6d76e4f2-d2fa-4f8b-8fa7-82021b228e8f/id-preview-d09f085a--428d1c65-d132-4d5c-ae95-b63678c58f73.lovable.app-1782920431113.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/6d76e4f2-d2fa-4f8b-8fa7-82021b228e8f/id-preview-d09f085a--428d1c65-d132-4d5c-ae95-b63678c58f73.lovable.app-1782920431113.png",
+      },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap",
+      },
     ],
-
   }),
   shellComponent: RootShell,
   component: RootComponent,

@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { evaluateStory, type EvaluationResult } from "@/lib/evaluate.functions";
+import { submitCeremony } from "@/lib/submit.functions";
 import {
   fetchAgreements,
   fetchVisaPaths,
@@ -239,6 +240,11 @@ function CeremonyIn() {
   const [evaluating, setEvaluating] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
   const runEvaluate = useServerFn(evaluateStory);
+  const runSubmit = useServerFn(submitCeremony);
+
+  // Guards against storing the same applicant twice if they navigate back and
+  // forward through the end of the flow.
+  const submittedRef = useRef(false);
 
   const runFetchVisaPaths = useServerFn(fetchVisaPaths);
   const { data: cmsVisaPaths } = useQuery({
@@ -299,8 +305,55 @@ function CeremonyIn() {
     setStepIdx(target);
   };
 
+  // Stores the applicant exactly once, at whichever point their journey ends:
+  // straight after a blocking verdict, or after Agreements (the last step
+  // before River Run) for everyone who gets that far.
+  //
+  // Deliberately never blocks navigation. The applicant has finished the
+  // ceremony either way, and a storage outage should not strand them on the
+  // last screen.
+  //
+  // NOTE: does not yet include form.agreementsAccepted — the middleware's
+  // schema (submit.functions.ts / aime-mdlwr) has no field for it. Adding
+  // one needs a coordinated change on that side too, not just here.
+  const storeSubmission = async (
+    result: EvaluationResult | null,
+    quizAnswers?: Record<string, number>,
+  ) => {
+    if (submittedRef.current) return;
+    submittedRef.current = true;
+
+    try {
+      await runSubmit({
+        data: {
+          goldenTicket: form.goldenTicket,
+          path: form.path,
+          firstName: form.firstName,
+          lastName: form.lastName,
+          email: form.email,
+          motherTongue: form.motherTongue,
+          city: form.city,
+          country: form.country,
+          story: form.story,
+          beings: form.beings.map((b) => ({ name: b.name, note: b.note })),
+          ...(quizAnswers ? { quizAnswers } : {}),
+          ...(result ? { evaluation: result } : {}),
+        },
+      });
+    } catch (e) {
+      // Allow a later attempt rather than losing the applicant entirely.
+      submittedRef.current = false;
+      console.error("Could not store the ceremony submission.", e);
+    }
+  };
+
   const next = async () => {
     setDirection("forward");
+    if (step === "agreements") {
+      void storeSubmission(evaluation, form.quizAnswers);
+      setStepIdx((i) => Math.min(i + 1, STEPS.length - 1));
+      return;
+    }
     if (step === "story") {
       setEvaluating(true);
       setEvalError(null);
@@ -321,6 +374,11 @@ function CeremonyIn() {
           },
         });
         setEvaluation(result);
+        // A blocked applicant never reaches the quiz, so this is the only
+        // chance to record them.
+        if (!result.canProceed) {
+          void storeSubmission(result);
+        }
         goTo("result");
       } catch (e) {
         setEvalError(

@@ -67,9 +67,12 @@ Create a `.env` file in the project root:
 
 ```
 GEMINI_API_KEY=your-gemini-api-key
+CEREMONY_API_URL=http://localhost:5110
 ```
 
 `GEMINI_API_KEY` is required — the reflection evaluation server function ([evaluate.functions.ts](src/lib/evaluate.functions.ts)) throws if it's missing. It's read via `process.env`, so when deploying (e.g. to Vercel) it must be set directly in the hosting platform's environment variables — `.env` is git-ignored and never deployed.
+
+`CEREMONY_API_URL` points at the [aime-mdlwr](../aime-mdlwr) middleware, which stores completed submissions in Airtable. It defaults to `http://localhost:5110`, so local development needs no setting; a deployed frontend must point it at the deployed middleware. Submission happens in [submit.functions.ts](src/lib/submit.functions.ts), a server function, so the middleware never needs to be publicly reachable from the browser.
 
 ### Run the dev server
 
