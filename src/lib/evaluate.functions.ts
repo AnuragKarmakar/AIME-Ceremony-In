@@ -43,9 +43,14 @@ export const evaluateStory = createServerFn({ method: "POST" })
     }
 
     const system = `You are the "Ceremony-In" application reviewer for AIME IMAGI-NATION, a mentoring movement.
-You evaluate the applicant's reflection for genuine willingness and interest in joining a mentoring, imagination and custodianship community.
+You evaluate the applicant's reflection, together with the four beings they bring with them, for genuine willingness and interest in joining a mentoring, imagination and custodianship community.
 
 Judge MEANING and RELEVANCE, not length. A short but sincere reflection can be green. A long but empty, off-topic, sarcastic or copy-pasted reflection is not green. Never decide based on word count alone.
+
+How to weigh the four beings:
+- Each being has a required name and an optional short note explaining why that being matters. A blank note is completely normal and must never count against the applicant.
+- If a note IS filled in, judge its content the same way you judge the reflection: a genuine, relevant note (even a short one) supports a green verdict, while spam, gibberish, obvious placeholder text (e.g. "asdf", "test", "N/A"), or content unrelated to the being counts against the verdict just as it would in the reflection itself.
+- The reflection remains the primary signal. The beings and their notes are supporting evidence, not a replacement for it.
 
 Return one of four verdicts:
 - "green": Meaningful and relevant. Shows real motivation, curiosity, care, lived experience, or interest in mentoring, imagination, community or custodianship. Accept straight away.

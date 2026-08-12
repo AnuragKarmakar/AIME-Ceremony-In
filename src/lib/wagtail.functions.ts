@@ -11,6 +11,18 @@ const VisaPathContentSchema = z.object({
 
 export type VisaPathContent = z.infer<typeof VisaPathContentSchema>;
 
+// One individually-checkable point within an agreement's submission
+// section. `id` is a stable Wagtail row id, used both as a React key and as
+// the key under which acceptance is tracked in FormState.agreementsAccepted.
+const AgreementStatementSchema = z
+  .object({
+    id: z.number(),
+    text: z.string(),
+  })
+  .transform((v) => ({ id: v.id, text: v.text }));
+
+export type AgreementStatement = z.infer<typeof AgreementStatementSchema>;
+
 // Wagtail/Django returns snake_case field names on the wire; transformed to
 // camelCase for the TS side.
 const AgreementContentSchema = z
@@ -24,6 +36,7 @@ const AgreementContentSchema = z
     submission_instruction_title: z.string(),
     submission_title: z.string(),
     submission_description: z.string(),
+    statements: z.array(AgreementStatementSchema),
     order: z.number(),
   })
   .transform((v) => ({
@@ -36,6 +49,7 @@ const AgreementContentSchema = z
     submissionInstructionTitle: v.submission_instruction_title,
     submissionTitle: v.submission_title,
     submissionDescription: v.submission_description,
+    statements: v.statements,
     order: v.order,
   }));
 

@@ -153,6 +153,10 @@ const AGREEMENTS_FALLBACK: AgreementContent[] = [
     submissionInstructionTitle: "Submission",
     submissionTitle: "Placeholder Submission Title",
     submissionDescription: "Placeholder submission description.",
+    statements: [
+      { id: 1, text: "Placeholder statement one." },
+      { id: 2, text: "Placeholder statement two." },
+    ],
   },
   {
     slug: "agreement-two",
@@ -165,6 +169,10 @@ const AGREEMENTS_FALLBACK: AgreementContent[] = [
     submissionInstructionTitle: "Submission",
     submissionTitle: "Placeholder Submission Title",
     submissionDescription: "Placeholder submission description.",
+    statements: [
+      { id: 1, text: "Placeholder statement one." },
+      { id: 2, text: "Placeholder statement two." },
+    ],
   },
 ];
 
@@ -262,11 +270,11 @@ function CeremonyIn() {
   else if (step === "identity")
     canAdvance = Boolean(
       form.firstName.trim() &&
-        form.lastName.trim() &&
-        /\S+@\S+\.\S+/.test(form.email) &&
-        form.motherTongue.trim() &&
-        form.city.trim() &&
-        form.country.trim(),
+      form.lastName.trim() &&
+      /\S+@\S+\.\S+/.test(form.email) &&
+      form.motherTongue.trim() &&
+      form.city.trim() &&
+      form.country.trim(),
     );
   else if (step === "story")
     canAdvance =
@@ -281,8 +289,8 @@ function CeremonyIn() {
     setForm((f) => ({ ...f, quizAnswers: { ...f.quizAnswers, [id]: v } }));
   }, []);
 
-  const setAgreementAccepted = useCallback((slug: string, v: boolean) => {
-    setForm((f) => ({ ...f, agreementsAccepted: { ...f.agreementsAccepted, [slug]: v } }));
+  const setAgreementAccepted = useCallback((key: string, v: boolean) => {
+    setForm((f) => ({ ...f, agreementsAccepted: { ...f.agreementsAccepted, [key]: v } }));
   }, []);
 
   const goTo = (key: StepKey) => {
@@ -305,7 +313,9 @@ function CeremonyIn() {
             goldenTicket: form.goldenTicket,
             beings: form.beings
               .map((b) =>
-                b.note.trim() ? `${b.name.trim()} (${b.note.trim()})` : b.name.trim(),
+                b.note.trim()
+                  ? `${b.name.trim()} (note: ${b.note.trim()})`
+                  : `${b.name.trim()} (no note given)`,
               )
               .filter(Boolean),
           },
@@ -360,9 +370,7 @@ function CeremonyIn() {
           {step === "path" && (
             <PathScreen paths={paths} selected={form.path} onSelect={(p) => setField("path", p)} />
           )}
-          {step === "identity" && (
-            <IdentityScreen form={form} setField={setField} />
-          )}
+          {step === "identity" && <IdentityScreen form={form} setField={setField} />}
           {step === "story" && (
             <StoryScreen
               story={form.story}
@@ -379,11 +387,14 @@ function CeremonyIn() {
               error={evalError}
             />
           )}
-          {step === "result" && (
-            <ResultScreen paths={paths} form={form} evaluation={evaluation} />
-          )}
+          {step === "result" && <ResultScreen paths={paths} form={form} evaluation={evaluation} />}
           {step === "quiz" && (
-            <QuizScreen answers={form.quizAnswers} setAnswer={setQuizAnswer} onBack={back} onFinish={next} />
+            <QuizScreen
+              answers={form.quizAnswers}
+              setAnswer={setQuizAnswer}
+              onBack={back}
+              onFinish={next}
+            />
           )}
           {step === "agreements" && (
             <AgreementsScreen
@@ -411,7 +422,6 @@ function CeremonyIn() {
     </main>
   );
 }
-
 
 function Header({
   onHome,
@@ -445,9 +455,7 @@ function Header({
       </button>
       {hasBadge ? (
         <div className="animate-fade-in min-w-0 rounded-2xl border border-border bg-muted/40 px-4 py-2 text-right">
-          {name && (
-            <div className="truncate font-display text-sm text-foreground">{name}</div>
-          )}
+          {name && <div className="truncate font-display text-sm text-foreground">{name}</div>}
           {pathName && (
             <div className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary">
               {pathName}
@@ -463,7 +471,6 @@ function Header({
   );
 }
 
-
 function ProgressIndicator({ current }: { current: number }) {
   return (
     <div className="mt-8">
@@ -476,11 +483,7 @@ function ProgressIndicator({ current }: { current: number }) {
               <div
                 className={[
                   "h-1.5 flex-1 rounded-full transition-colors duration-500 ease-out",
-                  done
-                    ? "bg-primary"
-                    : active
-                    ? "bg-sunrise"
-                    : "bg-muted",
+                  done ? "bg-primary" : active ? "bg-sunrise" : "bg-muted",
                 ].join(" ")}
               />
             </div>
@@ -516,13 +519,11 @@ function WelcomeScreen({
         You are welcome here
       </div>
       <h1 className="mt-5 font-display text-4xl leading-[1.05] sm:text-5xl">
-        Step into the{" "}
-        <span className="gradient-text-sunrise">Ceremony-In</span>.
+        Step into the <span className="gradient-text-sunrise">Ceremony-In</span>.
       </h1>
       <p className="mt-4 max-w-lg text-base text-muted-foreground">
-        This is where you meet the movement. A few gentle questions, a story you
-        bring with you, and a path chosen with care. No forms that feel like
-        forms.
+        This is where you meet the movement. A few gentle questions, a story you bring with you, and
+        a path chosen with care. No forms that feel like forms.
       </p>
 
       <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -539,9 +540,7 @@ function WelcomeScreen({
         >
           <Ticket className="h-4 w-4 text-gold" />
           I have a Golden Ticket
-          <ChevronDown
-            className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`}
-          />
+          <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
         </button>
       </div>
 
@@ -562,8 +561,8 @@ function WelcomeScreen({
             />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Optional. A Golden Ticket unlocks mentor invitations and unlocks
-            early stages on the River Run.
+            Optional. A Golden Ticket unlocks mentor invitations and unlocks early stages on the
+            River Run.
           </p>
         </div>
       )}
@@ -617,9 +616,7 @@ function PathScreen({
                 <Icon className="h-5 w-5" />
               </div>
               <div className="font-display text-lg">{name}</div>
-              <div className="mt-0.5 text-xs font-medium text-secondary">
-                {tagline}
-              </div>
+              <div className="mt-0.5 text-xs font-medium text-secondary">{tagline}</div>
               <p className="mt-3 text-sm text-muted-foreground">{description}</p>
               <div className="mt-4 flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Visa Path</span>
@@ -694,7 +691,6 @@ function IdentityScreen({
           <LanguageCombobox
             value={form.motherTongue}
             onChange={(v: string) => setField("motherTongue", v)}
-
           />
         </Field>
         <Field label="City" required>
@@ -811,14 +807,12 @@ function StoryScreen({
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Names are required. The notes are optional and yours to hold.
-          </p>
         </div>
 
         {evaluating && (
           <div className="animate-fade-in mt-4 inline-flex items-center gap-2 rounded-full bg-primary-soft px-4 py-2 text-sm text-primary">
-            <Loader2 className="h-4 w-4 animate-spin" />A mentor spirit is reading your words...
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Reading your words...
           </div>
         )}
         {error && !evaluating && (

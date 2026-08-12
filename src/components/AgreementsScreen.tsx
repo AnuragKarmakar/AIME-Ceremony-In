@@ -16,6 +16,13 @@ function Paragraphs({ text, className }: { text: string; className?: string }) {
   );
 }
 
+// Key each statement's acceptance by agreement + statement id, so
+// accepting a statement on one agreement never collides with — or gets
+// confused with — a statement on another.
+function statementKey(agreementSlug: string, statementId: number) {
+  return `${agreementSlug}:${statementId}`;
+}
+
 export function AgreementsScreen({
   agreements,
   accepted,
@@ -25,7 +32,7 @@ export function AgreementsScreen({
 }: {
   agreements: AgreementContent[];
   accepted: Record<string, boolean>;
-  setAccepted: (slug: string, value: boolean) => void;
+  setAccepted: (key: string, value: boolean) => void;
   onBack: () => void;
   onFinish: () => void;
 }) {
@@ -34,7 +41,12 @@ export function AgreementsScreen({
   const isFirst = pageIdx === 0;
   const isLast = pageIdx === agreements.length - 1;
   const agreement = agreements[pageIdx];
-  const isChecked = accepted[agreement.slug] ?? false;
+  // Every statement must exist and be individually checked. An agreement
+  // with zero statements (a content gap) is never treated as satisfied,
+  // rather than trivially passing with nothing to check.
+  const allChecked =
+    agreement.statements.length > 0 &&
+    agreement.statements.every((s) => accepted[statementKey(agreement.slug, s.id)]);
 
   const goPrev = () => {
     if (isFirst) {
@@ -94,17 +106,31 @@ export function AgreementsScreen({
             className="mt-2 text-sm text-muted-foreground"
           />
 
-          <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4 transition hover:border-primary/40">
-            <Checkbox
-              checked={isChecked}
-              onCheckedChange={(v) => setAccepted(agreement.slug, v === true)}
-              className="mt-0.5"
-            />
-            <span className="text-sm text-foreground">
-              I agree, understand, and will adhere to the{" "}
-              <strong>{agreement.submissionTitle}</strong>.
-            </span>
-          </label>
+          <div className="mt-5 space-y-3">
+            {agreement.statements.length === 0 && (
+              <p className="rounded-xl border border-dashed border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+                This agreement has no statements to accept yet. Add at least one in the Wagtail
+                admin (Snippets → Agreements) before an applicant can continue past this page.
+              </p>
+            )}
+            {agreement.statements.map((statement) => {
+              const key = statementKey(agreement.slug, statement.id);
+              const checked = accepted[key] ?? false;
+              return (
+                <label
+                  key={statement.id}
+                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4 transition hover:border-primary/40"
+                >
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={(v) => setAccepted(key, v === true)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-sm leading-relaxed text-foreground">{statement.text}</span>
+                </label>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -132,7 +158,7 @@ export function AgreementsScreen({
         </button>
         <button
           onClick={goNext}
-          disabled={!isChecked}
+          disabled={!allChecked}
           className="inline-flex items-center gap-1.5 rounded-full bg-sunrise px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-warm transition active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
         >
           {isLast ? (
