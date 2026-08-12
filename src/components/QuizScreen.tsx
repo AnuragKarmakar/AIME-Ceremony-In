@@ -26,7 +26,11 @@ export function QuizScreen({
       return;
     }
     setDirection("back");
-    setSectionIdx((i) => i - 1);
+    // Clamped: isFirst/isLast are snapshots from the last render, so several
+    // clicks fired before React re-renders (e.g. a fast double-click) would
+    // otherwise push sectionIdx out of QUIZ_SECTIONS' bounds and crash on
+    // the next render's QUIZ_SECTIONS[sectionIdx] access.
+    setSectionIdx((i) => Math.max(i - 1, 0));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -36,7 +40,7 @@ export function QuizScreen({
       return;
     }
     setDirection("forward");
-    setSectionIdx((i) => i + 1);
+    setSectionIdx((i) => Math.min(i + 1, QUIZ_SECTIONS.length - 1));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 

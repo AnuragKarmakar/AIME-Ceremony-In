@@ -54,7 +54,10 @@ export function AgreementsScreen({
       return;
     }
     setDirection("back");
-    setPageIdx((i) => i - 1);
+    // Clamped: isFirst/isLast are snapshots from the last render, so several
+    // clicks fired before React re-renders would otherwise push pageIdx out
+    // of `agreements`' bounds and crash on the next render's array access.
+    setPageIdx((i) => Math.max(i - 1, 0));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -64,7 +67,7 @@ export function AgreementsScreen({
       return;
     }
     setDirection("forward");
-    setPageIdx((i) => i + 1);
+    setPageIdx((i) => Math.min(i + 1, agreements.length - 1));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
