@@ -1,0 +1,21 @@
+version: 1.0
+runtime: nodejs22
+build:
+  commands:
+    build:
+      - npm ci
+      - npm run build
+run:
+  runtime-version: 22
+  # Nitro's node-server preset (see vite.config.ts) writes a plain Node
+  # entrypoint here; it reads PORT itself, which App Runner injects.
+  command: node .output/server/index.mjs
+  network:
+    port: 3000
+    env: PORT
+  env:
+    - name: NODE_ENV
+      value: production
+    # WAGTAIL_API_URL, CEREMONY_API_URL and GEMINI_API_KEY are set on the
+    # App Runner service itself (plain env vars / Secrets Manager), not
+    # here — this file is committed to the repo, those are per-environment.

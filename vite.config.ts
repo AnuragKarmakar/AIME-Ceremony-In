@@ -26,4 +26,8 @@ export default defineConfig({
   // config falls back to 8080 when unset. Ignored inside the Lovable sandbox,
   // which forces 8080 regardless.
   vite: process.env.PORT ? { server: { port: Number(process.env.PORT) } } : undefined,
+  // Plain Node server output instead of the cloudflare-module default —
+  // deployed target is AWS App Runner (Node.js source build), which runs
+  // `node .output/server/index.mjs` directly, not a Cloudflare Worker.
+  nitro: { preset: "node-server" },
 });

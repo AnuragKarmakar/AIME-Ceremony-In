@@ -1,6 +1,5 @@
 import { memo, useState } from "react";
-import { ArrowLeft, ArrowRight } from "lucide-react";
-import { Slider } from "@/components/ui/slider";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 import { QUIZ_SECTIONS, type QuizScale } from "@/lib/quiz.data";
 
 export function QuizScreen({
@@ -45,31 +44,28 @@ export function QuizScreen({
   };
 
   return (
-    <div className="ceremony-card mx-auto max-w-2xl overflow-x-clip p-7 sm:p-10">
+    <div className="ceremony-card mx-auto max-w-xl overflow-x-clip p-7 sm:p-10">
       <div
         key={sectionIdx}
         className={direction === "forward" ? "animate-step-forward" : "animate-step-back"}
       >
-        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+        <div className="font-mono text-[11px] tracking-[0.16em] text-secondary uppercase">
           {section.subtitle ?? "A relational check-in"}
         </div>
-        <h2 className="mt-2 font-display text-3xl leading-tight sm:text-4xl">
-          {section.title}
-        </h2>
+        <h2 className="mt-2 text-[28px] leading-tight text-ink">{section.title}</h2>
         {section.intro && (
-          <p className="mt-2 text-sm text-muted-foreground sm:text-base">{section.intro}</p>
+          <p className="mt-2 text-[13px] leading-relaxed text-ink/75">{section.intro}</p>
         )}
 
-        <div className="mt-8 space-y-8">
-          {section.questions.map((q, i) => (
+        <div className="mt-6 grid gap-[26px]">
+          {section.questions.map((q) => (
             <QuizQuestionRow
               key={q.id}
               id={q.id}
               prompt={q.prompt}
               scale={section.scale}
-              value={answers[q.id]}
+              value={answers[q.id] ?? 0}
               onChange={setAnswer}
-              delayMs={Math.min(i, 8) * 45}
             />
           ))}
         </div>
@@ -77,20 +73,20 @@ export function QuizScreen({
 
       <QuizProgressDots total={QUIZ_SECTIONS.length} current={sectionIdx} />
 
-      <div className="animate-fade-in sticky bottom-4 mt-6 flex items-center justify-between gap-3 rounded-full border border-border bg-card/90 px-3 py-2 backdrop-blur">
+      <div className="animate-fade-in sticky bottom-4 mt-[22px] flex items-center justify-between gap-3 rounded-full border-[1.5px] border-ink/15 bg-cream p-2">
         <button
           onClick={goPrev}
-          className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-secondary transition hover:bg-secondary-soft active:scale-[0.97]"
+          className="inline-flex items-center gap-1.5 rounded-full px-[18px] py-2.5 text-[13px] font-semibold text-secondary transition hover:bg-primary-soft"
         >
           <ArrowLeft className="h-4 w-4" />
           {isFirst ? "Back to your Ceremony" : "Previous"}
         </button>
         <button
           onClick={goNext}
-          className="inline-flex items-center gap-1.5 rounded-full bg-sunrise px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-warm transition active:scale-[0.97]"
+          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-[22px] py-3 text-[13px] font-bold text-primary-foreground transition-transform hover:scale-105 active:scale-90"
         >
           {isLast ? "Continue" : "Next"}
-          <ArrowRight className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4" />
         </button>
       </div>
     </div>
@@ -107,38 +103,93 @@ const QuizQuestionRow = memo(function QuizQuestionRow({
   scale,
   value,
   onChange,
-  delayMs,
 }: {
   id: string;
   prompt: string;
   scale: QuizScale;
   value: number;
   onChange: (id: string, value: number) => void;
-  delayMs: number;
 }) {
+  const max = scale.length - 1;
+  const isBinary = scale.length === 2;
+  const pct = max ? (value / max) * 100 : 0;
+
   return (
-    <div className="animate-fade-in" style={{ animationDelay: `${delayMs}ms` }}>
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-sm leading-relaxed text-foreground sm:text-base">{prompt}</p>
-        <span
-          key={value}
-          className="animate-pop shrink-0 rounded-full bg-primary-soft px-2.5 py-1 text-xs font-semibold text-primary"
-        >
+    <div>
+      <div className="flex items-start justify-between gap-3.5">
+        <p className="m-0 text-sm leading-[1.55] text-ink">{prompt}</p>
+        <span className="shrink-0 rounded-full bg-primary-soft px-3 py-1.5 text-[11px] font-bold text-secondary">
           {scale[value]}
         </span>
       </div>
-      <Slider
-        className="mt-4"
-        min={0}
-        max={scale.length - 1}
-        step={1}
-        value={[value]}
-        onValueChange={([v]) => onChange(id, v)}
-      />
-      <div className="mt-1.5 flex justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
-        <span>{scale[0]}</span>
-        <span>{scale[scale.length - 1]}</span>
-      </div>
+
+      {isBinary ? (
+        <div className="mt-3.5 flex gap-2.5">
+          <button
+            onClick={() => onChange(id, 0)}
+            aria-pressed={value === 0}
+            className="flex-1 rounded-[14px] border-2 p-3.5 text-sm font-bold text-ink transition-transform active:scale-[0.93]"
+            style={{
+              borderColor: value === 0 ? "var(--color-primary)" : "oklch(0.85 0.02 85)",
+              background: value === 0 ? "var(--color-primary-soft)" : "oklch(0.99 0.01 85)",
+            }}
+          >
+            No
+          </button>
+          <button
+            onClick={() => onChange(id, 1)}
+            aria-pressed={value === 1}
+            className="flex-1 rounded-[14px] border-2 p-3.5 text-sm font-bold text-ink transition-transform active:scale-[0.93]"
+            style={{
+              borderColor: value === 1 ? "var(--color-primary)" : "oklch(0.85 0.02 85)",
+              background: value === 1 ? "var(--color-primary-soft)" : "oklch(0.99 0.01 85)",
+            }}
+          >
+            Yes
+          </button>
+        </div>
+      ) : (
+        <div className="cer-scale">
+          <input
+            type="range"
+            min={0}
+            max={max}
+            step={1}
+            value={value}
+            onChange={(e) => onChange(id, Number(e.target.value))}
+            aria-label={prompt}
+            aria-valuetext={scale[value]}
+            className="cer-range w-full"
+            style={{
+              background: `linear-gradient(to right, var(--color-primary) ${pct}%, oklch(0.88 0.02 85) ${pct}%)`,
+            }}
+          />
+          <div aria-hidden="true" className="cer-scale-ticks">
+            {scale.map((_, i) => (
+              <span
+                key={i}
+                style={{
+                  left: `${max ? (i / max) * 100 : 0}%`,
+                  background: i <= value ? "var(--color-primary)" : "oklch(0.16 0.02 280 / 0.3)",
+                }}
+              />
+            ))}
+          </div>
+          <div aria-hidden="true" className="cer-scale-labels">
+            {scale.map((label, i) => (
+              <span
+                key={i}
+                style={{
+                  color: i === value ? "var(--color-primary)" : "oklch(0.16 0.02 280 / 0.55)",
+                  fontWeight: i === value ? 700 : 500,
+                }}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 });
@@ -153,19 +204,25 @@ const QuizProgressDots = memo(function QuizProgressDots({
   current: number;
 }) {
   return (
-    <div className="mt-8">
+    <div className="mt-7">
       <div className="flex flex-wrap items-center gap-1">
         {QUIZ_SECTIONS.map((s, i) => (
           <span
             key={s.key}
-            className={[
-              "h-1.5 w-1.5 rounded-full transition-all duration-300",
-              i < current ? "bg-primary" : i === current ? "scale-125 bg-sunrise" : "bg-muted",
-            ].join(" ")}
+            className="h-1.5 w-1.5 rounded-full transition-all duration-300"
+            style={{
+              background:
+                i < current
+                  ? "var(--color-primary)"
+                  : i === current
+                    ? "var(--color-gold)"
+                    : "oklch(0.16 0.02 280 / 0.15)",
+              transform: i === current ? "scale(1.4)" : "scale(1)",
+            }}
           />
         ))}
       </div>
-      <div className="mt-2 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+      <div className="mt-1.5 font-mono text-[10px] tracking-[0.1em] text-ink/68 uppercase">
         Section {current + 1} of {total}
       </div>
     </div>

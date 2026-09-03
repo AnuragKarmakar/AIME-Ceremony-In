@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
+import { ArrowLeft, ChevronRight, ShieldCheck } from "lucide-react";
 import type { AgreementContent } from "@/lib/wagtail.functions";
 
 function Paragraphs({ text, className }: { text: string; className?: string }) {
@@ -62,6 +61,7 @@ export function AgreementsScreen({
   };
 
   const goNext = () => {
+    if (!allChecked) return;
     if (isLast) {
       onFinish();
       return;
@@ -72,44 +72,42 @@ export function AgreementsScreen({
   };
 
   return (
-    <div className="ceremony-card mx-auto max-w-2xl overflow-x-clip p-7 sm:p-10">
+    <div className="ceremony-card mx-auto max-w-xl overflow-x-clip p-7 sm:p-10">
       <div
         key={pageIdx}
         className={direction === "forward" ? "animate-step-forward" : "animate-step-back"}
       >
-        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+        <div className="font-mono text-[11px] tracking-[0.16em] text-secondary uppercase">
           {agreement.headerTitle}
         </div>
-        <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-          {agreement.headerDescription}
-        </p>
+        <p className="mt-1.5 text-[13px] text-ink/75">{agreement.headerDescription}</p>
 
-        <div className="mt-8">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">
+        <div className="mt-[22px]">
+          <div className="font-mono text-[10px] tracking-[0.12em] text-secondary uppercase">
             {agreement.instructionalTitle}
           </div>
-          <h2 className="mt-1 font-display text-2xl leading-snug sm:text-3xl">
-            {agreement.bodyTitle}
-          </h2>
-          <div className="mt-4 max-h-[40vh] overflow-y-auto rounded-2xl border border-border bg-muted/30 p-5 sm:p-6">
-            <Paragraphs
-              text={agreement.bodyDescription}
-              className="text-sm leading-relaxed text-foreground sm:text-base"
-            />
+          <h2 className="mt-1 text-2xl leading-snug text-ink">{agreement.bodyTitle}</h2>
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label={agreement.bodyTitle}
+            className="mt-3 max-h-[220px] overflow-y-auto rounded-[18px] bg-[oklch(0.93_0.02_85)] p-[18px] text-[13px] leading-relaxed whitespace-pre-line text-ink/88"
+          >
+            <Paragraphs text={agreement.bodyDescription} />
           </div>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-border bg-primary-soft/40 p-5 sm:p-6">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">
+        <div className="mt-6 rounded-[22px] bg-primary-soft p-[22px]">
+          <div className="font-mono text-[10px] tracking-[0.12em] text-secondary uppercase">
             {agreement.submissionInstructionTitle}
           </div>
-          <h3 className="mt-1 font-display text-xl leading-snug">{agreement.submissionTitle}</h3>
+          <h3 className="mt-1 text-[19px] leading-snug text-ink">{agreement.submissionTitle}</h3>
           <Paragraphs
             text={agreement.submissionDescription}
-            className="mt-2 text-sm text-muted-foreground"
+            className="mt-1.5 text-[13px] text-ink/75"
           />
 
-          <div className="mt-5 space-y-3">
+          <div role="group" aria-label={agreement.submissionTitle} className="mt-3.5 grid gap-2.5">
             {agreement.statements.length === 0 && (
               <p className="rounded-xl border border-dashed border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
                 This agreement has no statements to accept yet. Add at least one in the Wagtail
@@ -122,47 +120,58 @@ export function AgreementsScreen({
               return (
                 <label
                   key={statement.id}
-                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4 transition hover:border-primary/40"
+                  className="flex cursor-pointer items-start gap-2.5 rounded-2xl bg-[oklch(0.99_0.01_85)] p-3.5 transition-transform active:scale-[0.97]"
                 >
-                  <Checkbox
+                  <input
+                    type="checkbox"
+                    className="cer-check"
                     checked={checked}
-                    onCheckedChange={(v) => setAccepted(key, v === true)}
-                    className="mt-0.5"
+                    onChange={(e) => setAccepted(key, e.target.checked)}
                   />
-                  <span className="text-sm leading-relaxed text-foreground">{statement.text}</span>
+                  <span className="text-[13px] leading-[1.55] text-ink">{statement.text}</span>
                 </label>
               );
             })}
           </div>
+          {!allChecked && (
+            <p role="status" className="mt-3 text-xs font-semibold text-secondary">
+              Accept both statements to continue.
+            </p>
+          )}
         </div>
       </div>
 
-      <div className="mt-8">
-        <div className="flex flex-wrap items-center gap-1">
-          {agreements.map((a, i) => (
-            <span
-              key={a.slug}
-              className={[
-                "h-1.5 w-1.5 rounded-full transition-all duration-300",
-                i < pageIdx ? "bg-primary" : i === pageIdx ? "scale-125 bg-sunrise" : "bg-muted",
-              ].join(" ")}
-            />
-          ))}
-        </div>
+      <div className="mt-5 flex gap-1" aria-hidden="true">
+        {agreements.map((a, i) => (
+          <span
+            key={a.slug}
+            className="h-1.5 w-1.5 rounded-full transition-all duration-300"
+            style={{
+              background:
+                i < pageIdx
+                  ? "var(--color-primary)"
+                  : i === pageIdx
+                    ? "var(--color-gold)"
+                    : "oklch(0.16 0.02 280 / 0.15)",
+              transform: i === pageIdx ? "scale(1.4)" : "scale(1)",
+            }}
+          />
+        ))}
       </div>
 
-      <div className="animate-fade-in sticky bottom-4 mt-6 flex items-center justify-between gap-3 rounded-full border border-border bg-card/90 px-3 py-2 backdrop-blur">
+      <div className="animate-fade-in sticky bottom-4 mt-[18px] flex items-center justify-between gap-3 rounded-full border-[1.5px] border-ink/15 bg-cream p-2">
         <button
           onClick={goPrev}
-          className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-secondary transition hover:bg-secondary-soft active:scale-[0.97]"
+          className="inline-flex items-center gap-1.5 rounded-full px-[18px] py-2.5 text-[13px] font-semibold text-secondary transition hover:bg-primary-soft"
         >
           <ArrowLeft className="h-4 w-4" />
           {isFirst ? "Back to your check-in" : "Previous"}
         </button>
         <button
           onClick={goNext}
-          disabled={!allChecked}
-          className="inline-flex items-center gap-1.5 rounded-full bg-sunrise px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-warm transition active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+          aria-disabled={!allChecked}
+          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-[22px] py-3 text-[13px] font-bold text-primary-foreground transition-transform hover:scale-105 active:scale-90"
+          style={{ opacity: allChecked ? 1 : 0.4, cursor: allChecked ? "pointer" : "not-allowed" }}
         >
           {isLast ? (
             <>
@@ -172,7 +181,7 @@ export function AgreementsScreen({
           ) : (
             <>
               Next
-              <ArrowRight className="h-4 w-4" />
+              <ChevronRight className="h-4 w-4" />
             </>
           )}
         </button>
