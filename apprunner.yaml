@@ -18,7 +18,7 @@ run:
     - name: CEREMONY_API_URL
       value: http://ec2-3-217-19-123.compute-1.amazonaws.com
     - name: WAGTAIL_API_URL
-      value: "https://ks547zdyum.us-east-1.awsapprunner.com"
+      value: "https://p2mwunmtp4.us-east-1.awsapprunner.com"
   secrets:
     - name: GEMINI_API_KEY
       value-from: arn:aws:secretsmanager:us-east-1:723414444862:secret:aime/gemini-api-key-hPBCej
