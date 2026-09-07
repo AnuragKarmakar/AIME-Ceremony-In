@@ -6,7 +6,6 @@ build:
       - npm ci
       - npm run build
 run:
-  runtime-version: 22
   # Nitro's node-server preset (see vite.config.ts) writes a plain Node
   # entrypoint here; it reads PORT itself, which App Runner injects.
   command: node .output/server/index.mjs
