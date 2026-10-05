@@ -1,0 +1,24 @@
+version: 1.0
+runtime: nodejs22
+build:
+  commands:
+    build:
+      - npm ci
+      - npm run build
+run:
+  # Nitro's node-server preset (see vite.config.ts) writes a plain Node
+  # entrypoint here; it reads PORT itself, which App Runner injects.
+  command: node .output/server/index.mjs
+  network:
+    port: 3000
+    env: PORT
+  env:
+    - name: NODE_ENV
+      value: production
+    - name: CEREMONY_API_URL
+      value: http://ec2-3-217-19-123.compute-1.amazonaws.com
+    - name: WAGTAIL_API_URL
+      value: "https://mppg2swkbi.us-east-1.awsapprunner.com"
+  secrets:
+    - name: GEMINI_API_KEY
+      value-from: arn:aws:secretsmanager:us-east-1:723414444862:secret:aime/gemini-api-key-hPBCej
