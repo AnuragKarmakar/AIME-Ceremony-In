@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { evaluateStory, type EvaluationResult } from "@/lib/evaluate.functions";
-import { submitCeremony, saveProgress, fetchProgressByEmail } from "@/lib/submit.functions";
+import { submitCeremony } from "@/lib/submit.functions";
 import {
   fetchAgreements,
   fetchVisaPaths,
@@ -265,17 +265,12 @@ function CeremonyIn() {
     typeof window === "undefined" ? null : loadSavedProgress(),
   );
   const [resumeDecided, setResumeDecided] = useState(false);
-  const [resumeByEmailStatus, setResumeByEmailStatus] = useState<
-    "idle" | "loading" | "not_found" | "error"
-  >("idle");
 
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
   const runEvaluate = useServerFn(evaluateStory);
   const runSubmit = useServerFn(submitCeremony);
-  const runSaveProgress = useServerFn(saveProgress);
-  const runFetchProgressByEmail = useServerFn(fetchProgressByEmail);
 
   // Guards against storing the same applicant twice if they navigate back and
   // forward through the end of the flow.
@@ -366,39 +361,6 @@ function CeremonyIn() {
     }
   }, [form, stepIdx, evaluation]);
 
-  // Also persists progress to Airtable (Status=Incomplete) on every step
-  // change, once there is a real email to key it on — this is what makes
-  // resume work across devices/browsers, not just the one that wrote the
-  // localStorage copy above. Deliberately keyed on [stepIdx] alone: saving on
-  // every keystroke (the way the localStorage effect above does) would
-  // hammer Airtable's API, while once per step transition is enough for
-  // resume to be useful. submittedRef guards against writing a stray
-  // Incomplete save after the final submit has already marked this record
-  // Submitted.
-  useEffect(() => {
-    if (stepIdx === 0 || submittedRef.current) return;
-    if (!/\S+@\S+\.\S+/.test(form.email)) return;
-    void runSaveProgress({
-      data: {
-        stepKey: step,
-        goldenTicket: form.goldenTicket,
-        path: form.path ?? undefined,
-        firstName: form.firstName,
-        lastName: form.lastName,
-        email: form.email,
-        motherTongue: form.motherTongue,
-        city: form.city,
-        country: form.country,
-        story: form.story,
-        beings: form.beings.map((b) => ({ name: b.name, note: b.note })),
-        quizAnswers: form.quizAnswers,
-        agreementsAccepted: form.agreementsAccepted,
-        ...(evaluation ? { evaluation } : {}),
-      },
-    }).catch((e) => console.error("Could not save progress to Airtable.", e));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepIdx]);
-
   const resumeProgress = () => {
     if (!savedProgress) return;
     setForm(savedProgress.form);
@@ -413,46 +375,6 @@ function CeremonyIn() {
     setResumeDecided(true);
   };
 
-  // Cross-device/cross-browser resume: looks up an Incomplete Airtable record
-  // by email (no verification — consistent with the rest of this app, which
-  // has no accounts) and restores it. Returns via resumeByEmailStatus rather
-  // than a return value since WelcomeScreen only has the status to render.
-  const resumeByEmail = async (email: string) => {
-    setResumeByEmailStatus("loading");
-    try {
-      const result = await runFetchProgressByEmail({ data: { email } });
-      if (!result) {
-        setResumeByEmailStatus("not_found");
-        return;
-      }
-      setForm((f) => ({
-        ...f,
-        goldenTicket: result.form.goldenTicket,
-        path: (result.form.path as PathId | null) ?? f.path,
-        firstName: result.form.firstName,
-        lastName: result.form.lastName,
-        email: result.form.email,
-        motherTongue: result.form.motherTongue,
-        city: result.form.city,
-        country: result.form.country,
-        story: result.form.story,
-        beings: result.form.beings as FormState["beings"],
-        quizAnswers:
-          Object.keys(result.form.quizAnswers).length > 0 ? result.form.quizAnswers : f.quizAnswers,
-        agreementsAccepted: result.form.agreementsAccepted,
-      }));
-      setEvaluation(result.evaluation);
-      setDirection("forward");
-      const foundIdx = STEPS.findIndex((s) => s.key === result.stepKey);
-      setStepIdx(foundIdx >= 0 ? foundIdx : STEPS.findIndex((s) => s.key === "identity"));
-      setResumeDecided(true);
-      setResumeByEmailStatus("idle");
-    } catch (e) {
-      console.error("Could not resume progress by email.", e);
-      setResumeByEmailStatus("error");
-    }
-  };
-
   // Stores the applicant exactly once, at whichever point their journey ends:
   // straight after a blocking verdict, or after Agreements (the last step
   // before River Run) for everyone who gets that far.
@@ -460,6 +382,10 @@ function CeremonyIn() {
   // Deliberately never blocks navigation. The applicant has finished the
   // ceremony either way, and a storage outage should not strand them on the
   // last screen.
+  //
+  // NOTE: does not yet include form.agreementsAccepted — the middleware's
+  // schema (submit.functions.ts / aime-mdlwr) has no field for it. Adding
+  // one needs a coordinated change on that side too, not just here.
   const storeSubmission = async (
     result: EvaluationResult | null,
     quizAnswers?: Record<string, number>,
@@ -480,7 +406,6 @@ function CeremonyIn() {
           country: form.country,
           story: form.story,
           beings: form.beings.map((b) => ({ name: b.name, note: b.note })),
-          agreementsAccepted: form.agreementsAccepted,
           ...(quizAnswers ? { quizAnswers } : {}),
           ...(result ? { evaluation: result } : {}),
         },
@@ -616,8 +541,6 @@ function CeremonyIn() {
                 resumeAvailable={Boolean(savedProgress) && !resumeDecided}
                 onResume={resumeProgress}
                 onDiscard={discardProgress}
-                onResumeByEmail={resumeByEmail}
-                resumeByEmailStatus={resumeByEmailStatus}
               />
             )}
             {step === "path" && (
@@ -839,8 +762,6 @@ function WelcomeScreen({
   resumeAvailable,
   onResume,
   onDiscard,
-  onResumeByEmail,
-  resumeByEmailStatus,
 }: {
   golden: string;
   setGolden: (v: string) => void;
@@ -848,11 +769,8 @@ function WelcomeScreen({
   resumeAvailable: boolean;
   onResume: () => void;
   onDiscard: () => void;
-  onResumeByEmail: (email: string) => void;
-  resumeByEmailStatus: "idle" | "loading" | "not_found" | "error";
 }) {
   const [open, setOpen] = useState(false);
-  const [resumeEmail, setResumeEmail] = useState("");
   return (
     <div className="ceremony-card mx-auto max-w-xl p-8 sm:p-11">
       <div className="inline-flex items-center gap-2 rounded-full border-[1.5px] border-ink px-3.5 py-1.5 font-mono text-[10px] tracking-[0.1em] text-ink uppercase">
@@ -891,48 +809,6 @@ function WelcomeScreen({
           </div>
         </div>
       )}
-
-      {/* Cross-device resume: the local-storage banner above only ever shows
-          on the browser that saved it. This is the fallback for a returning
-          applicant on a different device/browser — looked up by email
-          against Airtable, no login required, consistent with the rest of
-          this app having no accounts anywhere. */}
-      <div className="animate-fade-in mt-4 rounded-2xl border-[1.5px] border-dashed border-ink/20 p-4">
-        <div className="text-[13px] font-semibold text-ink">Started on another device?</div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (resumeEmail.trim()) onResumeByEmail(resumeEmail.trim());
-          }}
-          className="mt-2 flex flex-col gap-2 sm:flex-row"
-        >
-          <input
-            type="email"
-            value={resumeEmail}
-            onChange={(e) => setResumeEmail(e.target.value)}
-            placeholder="you@example.com"
-            className="w-full flex-1 rounded-xl border-[1.5px] border-ink/25 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/25"
-          />
-          <button
-            type="submit"
-            disabled={resumeByEmailStatus === "loading" || !resumeEmail.trim()}
-            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border-[1.5px] border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-primary-soft disabled:opacity-40"
-          >
-            {resumeByEmailStatus === "loading" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            Continue with this email
-          </button>
-        </form>
-        {resumeByEmailStatus === "not_found" && (
-          <p role="status" className="mt-2 text-xs font-semibold text-secondary">
-            No Ceremony-In in progress for that email. Check the address, or begin below.
-          </p>
-        )}
-        {resumeByEmailStatus === "error" && (
-          <p role="status" className="mt-2 text-xs font-semibold text-destructive">
-            Couldn't reach the server to look that up. Try again in a moment.
-          </p>
-        )}
-      </div>
 
       <div className="mt-8 flex flex-wrap items-center gap-3">
         <button
@@ -1440,10 +1316,15 @@ function ResultScreen({
       : verdict === "yellow"
         ? {
             Icon: ShieldQuestion,
-            badge: "Held with care",
+            badge: form.goldenTicket.trim() ? "Approved · Golden Ticket" : "Held with care",
             badgeCx: "bg-[oklch(0.9_0.08_90)] text-[oklch(0.4_0.1_60)]",
             ring: "border-gold",
-            title: (
+            title: form.goldenTicket.trim() ? (
+              <>
+                Welcome, <span className="text-primary">{first}</span>. Your Golden Ticket opens the
+                way.
+              </>
+            ) : (
               <>
                 Thank you, <span className="text-primary">{first}</span>. A human wants to meet you
                 first.

@@ -111,7 +111,7 @@ export function AgreementsScreen({
             {agreement.statements.length === 0 && (
               <p className="rounded-xl border border-dashed border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
                 This agreement has no statements to accept yet. Add at least one in the Wagtail
-                admin before an applicant can continue past this page.
+                admin (Snippets → Agreements) before an applicant can continue past this page.
               </p>
             )}
             {agreement.statements.map((statement) => {

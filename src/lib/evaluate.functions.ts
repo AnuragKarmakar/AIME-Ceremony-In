@@ -24,25 +24,42 @@ export type EvaluationResult = {
 export const evaluateStory = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => InputSchema.parse(data))
   .handler(async ({ data }): Promise<EvaluationResult> => {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) throw new Error("Missing GEMINI_API_KEY");
+    if (!data.goldenTicket?.trim()) return reviewReflection(data);
 
-    // Fast-path: completely empty or near-empty reflection is a hard block.
-    // We still call the model on anything with real content so that judgement
-    // is about MEANING and RELEVANCE, not length or word count.
-    const trimmed = data.story.trim();
-    if (trimmed.length === 0) {
-      return {
-        verdict: "red_block",
-        headline: "Nothing was written in your reflection.",
-        reason:
-          "The reflection field was empty. Please share a few honest sentences about why you are stepping into this ceremony before continuing.",
-        canProceed: false,
-        adminReview: false,
-      };
+    // Golden Ticket holders are pre-verified by whoever invited them, so their
+    // visa is always approved once they complete the ceremony steps: the
+    // reflection can never block them. It is still reviewed so that a strong
+    // reflection reads as green, while a weak, short, off-topic or unreviewable
+    // one (including the AI reviewer being down or rate limited) is approved as
+    // yellow. The ticket itself is stored on the record ("Has Golden Ticket").
+    try {
+      const review = await reviewReflection(data);
+      return review.verdict === "green" ? GOLDEN_TICKET_APPROVAL : GOLDEN_TICKET_WEAK_APPROVAL;
+    } catch {
+      return GOLDEN_TICKET_WEAK_APPROVAL;
     }
+  });
 
-    const system = `You are the "Ceremony-In" application reviewer for AIME IMAGI-NATION, a mentoring movement.
+async function reviewReflection(data: z.infer<typeof InputSchema>): Promise<EvaluationResult> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("Missing GEMINI_API_KEY");
+
+  // Fast-path: completely empty or near-empty reflection is a hard block.
+  // We still call the model on anything with real content so that judgement
+  // is about MEANING and RELEVANCE, not length or word count.
+  const trimmed = data.story.trim();
+  if (trimmed.length === 0) {
+    return {
+      verdict: "red_block",
+      headline: "Nothing was written in your reflection.",
+      reason:
+        "The reflection field was empty. Please share a few honest sentences about why you are stepping into this ceremony before continuing.",
+      canProceed: false,
+      adminReview: false,
+    };
+  }
+
+  const system = `You are the "Ceremony-In" application reviewer for AIME IMAGI-NATION, a mentoring movement.
 You evaluate the applicant's reflection, together with the four beings they bring with them, for genuine willingness and interest in joining a mentoring, imagination and custodianship community.
 
 Judge MEANING and RELEVANCE, not length. A short but sincere reflection can be green. A long but empty, off-topic, sarcastic or copy-pasted reflection is not green. Never decide based on word count alone.
@@ -55,12 +72,12 @@ How to weigh the four beings:
 Return one of four verdicts:
 - "green": Meaningful and relevant. Shows real motivation, curiosity, care, lived experience, or interest in mentoring, imagination, community or custodianship. Accept straight away.
 - "yellow": Ambiguous, generic, or unclear motivation, but not hostile. A human should verify.
-- "red_flag": Something was written but it is insufficient, off-topic, or does not meet the criteria. The applicant CANNOT proceed, and an admin will be notified to review. If the applicant has a Golden Ticket, this verdict is treated as yellow.
+- "red_flag": Something was written but it is insufficient, off-topic, or does not meet the criteria. The applicant CANNOT proceed, and an admin will be notified to review.
 - "red_block": Completely irrelevant, empty in spirit, spam, gibberish, hostile, or a clear refusal to engage. The applicant CANNOT proceed and must resubmit.
 
 Be warm but honest. Never use em dashes or en dashes in any output text.`;
 
-    const user = `Applicant name: ${data.name || "(not shared)"}
+  const user = `Applicant name: ${data.name || "(not shared)"}
 Chosen Visa Path: ${data.path || "(not chosen)"}
 
 Four beings the applicant brings with them:
@@ -76,75 +93,91 @@ Respond ONLY as JSON with keys:
   headline: short human sentence, under 90 chars, no em dashes
   reason: 2 to 3 sentences of warm honest feedback, no em dashes`;
 
-    const res = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({
-          model: "gemini-3.6-flash",
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-          response_format: { type: "json_object" },
-        }),
+  const res = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
       },
-    );
+      body: JSON.stringify({
+        model: "gemini-3.6-flash",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    },
+  );
 
-    if (!res.ok) {
-      // 503 means the model is temporarily overloaded, not that anything is
-      // wrong with the submission — surfaced as a distinct marker so the
-      // frontend can offer to skip evaluation instead of showing a raw
-      // gateway error the applicant can't act on.
-      if (res.status === 503) {
-        throw new Error("GEMINI_UNAVAILABLE");
-      }
-      const text = await res.text();
-      throw new Error(`AI gateway error ${res.status}: ${text}`);
+  if (!res.ok) {
+    // 503 means the model is temporarily overloaded, not that anything is
+    // wrong with the submission — surfaced as a distinct marker so the
+    // frontend can offer to skip evaluation instead of showing a raw
+    // gateway error the applicant can't act on.
+    if (res.status === 503) {
+      throw new Error("GEMINI_UNAVAILABLE");
     }
+    const text = await res.text();
+    throw new Error(`AI gateway error ${res.status}: ${text}`);
+  }
 
-    const json = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const content = json.choices?.[0]?.message?.content ?? "{}";
-    let parsed: Partial<EvaluationResult> = {};
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      parsed = {};
-    }
+  const json = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  const content = json.choices?.[0]?.message?.content ?? "{}";
+  let parsed: Partial<EvaluationResult> = {};
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    parsed = {};
+  }
 
-    const raw = String(parsed.verdict ?? "").toLowerCase();
-    let verdict: Verdict =
-      raw === "green"
-        ? "green"
-        : raw === "red_block" || raw === "red-block" || raw === "block"
-          ? "red_block"
-          : raw === "red_flag" || raw === "red-flag" || raw === "flag" || raw === "red"
-            ? "red_flag"
-            : "yellow";
+  const raw = String(parsed.verdict ?? "").toLowerCase();
+  const verdict: Verdict =
+    raw === "green"
+      ? "green"
+      : raw === "red_block" || raw === "red-block" || raw === "block"
+        ? "red_block"
+        : raw === "red_flag" || raw === "red-flag" || raw === "flag" || raw === "red"
+          ? "red_flag"
+          : "yellow";
 
-    // A Golden Ticket turns a red flag into a yellow flag: the applicant still
-    // needs human review, but they are not turned away at the river.
-    const hasGoldenTicket = Boolean(data.goldenTicket?.trim());
-    if (hasGoldenTicket && verdict === "red_flag") {
-      verdict = "yellow";
-    }
+  const clean = (s: string) => s.replace(/\u2014|\u2013/g, ",");
 
-    const clean = (s: string) => s.replace(/\u2014|\u2013/g, ",");
+  return {
+    verdict,
+    headline: parsed.headline ? clean(String(parsed.headline)) : FALLBACK_COPY[verdict].headline,
+    reason: parsed.reason ? clean(String(parsed.reason)) : FALLBACK_COPY[verdict].reason,
+    canProceed: verdict !== "red_block",
+    adminReview: verdict === "yellow" || verdict === "red_flag",
+  };
+}
 
-    return {
-      verdict,
-      headline: parsed.headline ? clean(String(parsed.headline)) : FALLBACK_COPY[verdict].headline,
-      reason: parsed.reason ? clean(String(parsed.reason)) : FALLBACK_COPY[verdict].reason,
-      canProceed: verdict !== "red_block",
-      adminReview: verdict === "yellow" || verdict === "red_flag",
-    };
-  });
+/** Golden Ticket holder whose reflection reviewed as green. */
+const GOLDEN_TICKET_APPROVAL: EvaluationResult = {
+  verdict: "green",
+  headline: "Your Golden Ticket is honoured.",
+  reason:
+    "Someone who believes in you has already vouched for you, so your visa is approved. Thank you for sharing your reflection; a mentor will read it with care.",
+  canProceed: true,
+  adminReview: false,
+};
+
+/**
+ * Golden Ticket holder whose reflection was weak or could not be reviewed.
+ * Still approved (canProceed), but yellow so a mentor can read it with care.
+ */
+const GOLDEN_TICKET_WEAK_APPROVAL: EvaluationResult = {
+  verdict: "yellow",
+  headline: "Your Golden Ticket is honoured.",
+  reason:
+    "Someone who believes in you has already vouched for you, so your visa is approved. Your reflection was brief, so a mentor will read it with care and get to know you better along the river.",
+  canProceed: true,
+  adminReview: true,
+};
 
 /** Used only when Gemini's own response is missing a headline/reason. */
 const FALLBACK_COPY: Record<Verdict, { headline: string; reason: string }> = {
