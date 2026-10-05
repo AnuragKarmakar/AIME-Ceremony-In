@@ -16,6 +16,8 @@ dist-ssr
 .nitro
 *.local
 JM X AIME NATION
+.prettierignore
+.prettierrc
 
 # Wrangler / Cloudflare
 .wrangler/
