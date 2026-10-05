@@ -96,6 +96,13 @@ Respond ONLY as JSON with keys:
     );
 
     if (!res.ok) {
+      // 503 means the model is temporarily overloaded, not that anything is
+      // wrong with the submission — surfaced as a distinct marker so the
+      // frontend can offer to skip evaluation instead of showing a raw
+      // gateway error the applicant can't act on.
+      if (res.status === 503) {
+        throw new Error("GEMINI_UNAVAILABLE");
+      }
       const text = await res.text();
       throw new Error(`AI gateway error ${res.status}: ${text}`);
     }
@@ -130,29 +137,33 @@ Respond ONLY as JSON with keys:
 
     const clean = (s: string) => s.replace(/\u2014|\u2013/g, ",");
 
-    const fallbackHeadline =
-      verdict === "green"
-        ? "Your reflection lands with heart."
-        : verdict === "yellow"
-          ? "Your reflection needs a human set of eyes."
-          : verdict === "red_flag"
-            ? "Something was shared, but it needs a closer look."
-            : "This reflection is not ready for the river yet.";
-
-    const fallbackReason =
-      verdict === "green"
-        ? "A mentor will read your words with care and meet you at the first bend of the river."
-        : verdict === "yellow"
-          ? "A mentor will read your reflection with their own eyes before you continue."
-          : verdict === "red_flag"
-            ? "You wrote something, and you can continue, but an admin will review your reflection because it did not fully meet the criteria."
-            : "The reflection did not show meaningful engagement with the ceremony. Please try again with a few honest sentences.";
-
     return {
       verdict,
-      headline: parsed.headline ? clean(String(parsed.headline)) : fallbackHeadline,
-      reason: parsed.reason ? clean(String(parsed.reason)) : fallbackReason,
+      headline: parsed.headline ? clean(String(parsed.headline)) : FALLBACK_COPY[verdict].headline,
+      reason: parsed.reason ? clean(String(parsed.reason)) : FALLBACK_COPY[verdict].reason,
       canProceed: verdict !== "red_block",
       adminReview: verdict === "yellow" || verdict === "red_flag",
     };
   });
+
+/** Used only when Gemini's own response is missing a headline/reason. */
+const FALLBACK_COPY: Record<Verdict, { headline: string; reason: string }> = {
+  green: {
+    headline: "Your reflection lands with heart.",
+    reason: "A mentor will read your words with care and meet you at the first bend of the river.",
+  },
+  yellow: {
+    headline: "Your reflection needs a human set of eyes.",
+    reason: "A mentor will read your reflection with their own eyes before you continue.",
+  },
+  red_flag: {
+    headline: "Something was shared, but it needs a closer look.",
+    reason:
+      "You wrote something, and you can continue, but an admin will review your reflection because it did not fully meet the criteria.",
+  },
+  red_block: {
+    headline: "This reflection is not ready for the river yet.",
+    reason:
+      "The reflection did not show meaningful engagement with the ceremony. Please try again with a few honest sentences.",
+  },
+};

@@ -3,13 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { evaluateStory, type EvaluationResult } from "@/lib/evaluate.functions";
-import { submitCeremony } from "@/lib/submit.functions";
+import { submitCeremony, saveProgress, fetchProgressByEmail } from "@/lib/submit.functions";
 import {
   fetchAgreements,
   fetchVisaPaths,
   type AgreementContent,
   type VisaPathContent,
-} from "@/lib/wagtail.functions";
+} from "@/lib/strapi.functions";
 import { LanguageCombobox } from "@/components/LanguageCombobox";
 import { QuizScreen } from "@/components/QuizScreen";
 import { AgreementsScreen } from "@/components/AgreementsScreen";
@@ -109,7 +109,7 @@ const PATHS: {
 ];
 
 // Overlays editable copy (name/tagline/description/order) fetched from
-// Wagtail onto the hardcoded PATHS. Mono code, swatch and banner always come
+// Strapi onto the hardcoded PATHS. Mono code, swatch and banner always come
 // from PATHS — they're presentation, not CMS content. Falls back to PATHS
 // untouched whenever the CMS is unset, unreachable, or hasn't returned a
 // given path yet, so the app never shows a broken or empty Visa Path screen.
@@ -125,7 +125,7 @@ function mergePaths(base: typeof PATHS, cms: VisaPathContent[] | null): typeof P
 }
 
 // Placeholder agreement copy, shown until real content is entered in
-// Wagtail. Unlike Visa Paths, agreements have no hardcoded presentation
+// Strapi. Unlike Visa Paths, agreements have no hardcoded presentation
 // fields to preserve — the CMS list is used outright once it returns
 // anything, and this fallback only covers the CMS being unset/unreachable.
 const AGREEMENTS_FALLBACK: AgreementContent[] = [
@@ -187,6 +187,44 @@ type FormState = {
   agreementsAccepted: Record<string, boolean>;
 };
 
+// Local-only progress save so an applicant who closes the tab or refreshes
+// mid-ceremony doesn't lose 5-10 minutes of answers. Kept in localStorage
+// (not cookies): it never leaves the browser, has plenty of room for 61 quiz
+// answers, and survives a closed tab rather than just a closed session.
+const PROGRESS_STORAGE_KEY = "aime-ceremony-in:progress";
+const PROGRESS_STORAGE_VERSION = 1;
+
+type SavedProgress = {
+  version: number;
+  stepIdx: number;
+  form: FormState;
+  evaluation: EvaluationResult | null;
+};
+
+function loadSavedProgress(): SavedProgress | null {
+  try {
+    const raw = localStorage.getItem(PROGRESS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedProgress>;
+    // Bail on anything that doesn't look like our own shape — a version bump
+    // after a form-field change, corrupted JSON, or another app's leftover key.
+    if (parsed.version !== PROGRESS_STORAGE_VERSION || !parsed.form || typeof parsed.stepIdx !== "number") {
+      return null;
+    }
+    return parsed as SavedProgress;
+  } catch {
+    return null;
+  }
+}
+
+function clearSavedProgress() {
+  try {
+    localStorage.removeItem(PROGRESS_STORAGE_KEY);
+  } catch {
+    // Nothing to clean up if storage isn't available (e.g. private browsing).
+  }
+}
+
 function CeremonyIn() {
   const [stepIdx, setStepIdx] = useState(0);
   const [direction, setDirection] = useState<"forward" | "back">("forward");
@@ -221,11 +259,23 @@ function CeremonyIn() {
     agreementsAccepted: {},
   }));
 
+  // Read once on mount. The applicant stays on the Welcome screen either way —
+  // resuming happens only if they choose to, via the prompt rendered there.
+  const [savedProgress] = useState<SavedProgress | null>(() =>
+    typeof window === "undefined" ? null : loadSavedProgress(),
+  );
+  const [resumeDecided, setResumeDecided] = useState(false);
+  const [resumeByEmailStatus, setResumeByEmailStatus] = useState<
+    "idle" | "loading" | "not_found" | "error"
+  >("idle");
+
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
   const runEvaluate = useServerFn(evaluateStory);
   const runSubmit = useServerFn(submitCeremony);
+  const runSaveProgress = useServerFn(saveProgress);
+  const runFetchProgressByEmail = useServerFn(fetchProgressByEmail);
 
   // Guards against storing the same applicant twice if they navigate back and
   // forward through the end of the flow.
@@ -303,6 +353,106 @@ function CeremonyIn() {
     setStepIdx(target);
   };
 
+  // Nothing worth saving at the Welcome screen itself (a blank form), and
+  // skipping it here also means we never overwrite a saved session with a
+  // fresh blank one before the applicant has chosen to resume or start over.
+  useEffect(() => {
+    if (stepIdx === 0) return;
+    try {
+      const payload: SavedProgress = { version: PROGRESS_STORAGE_VERSION, stepIdx, form, evaluation };
+      localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Storage full or unavailable — progress just won't resume, not fatal.
+    }
+  }, [form, stepIdx, evaluation]);
+
+  // Also persists progress to Airtable (Status=Incomplete) on every step
+  // change, once there is a real email to key it on — this is what makes
+  // resume work across devices/browsers, not just the one that wrote the
+  // localStorage copy above. Deliberately keyed on [stepIdx] alone: saving on
+  // every keystroke (the way the localStorage effect above does) would
+  // hammer Airtable's API, while once per step transition is enough for
+  // resume to be useful. submittedRef guards against writing a stray
+  // Incomplete save after the final submit has already marked this record
+  // Submitted.
+  useEffect(() => {
+    if (stepIdx === 0 || submittedRef.current) return;
+    if (!/\S+@\S+\.\S+/.test(form.email)) return;
+    void runSaveProgress({
+      data: {
+        stepKey: step,
+        goldenTicket: form.goldenTicket,
+        path: form.path ?? undefined,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        email: form.email,
+        motherTongue: form.motherTongue,
+        city: form.city,
+        country: form.country,
+        story: form.story,
+        beings: form.beings.map((b) => ({ name: b.name, note: b.note })),
+        quizAnswers: form.quizAnswers,
+        agreementsAccepted: form.agreementsAccepted,
+        ...(evaluation ? { evaluation } : {}),
+      },
+    }).catch((e) => console.error("Could not save progress to Airtable.", e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIdx]);
+
+  const resumeProgress = () => {
+    if (!savedProgress) return;
+    setForm(savedProgress.form);
+    setEvaluation(savedProgress.evaluation);
+    setDirection("forward");
+    setStepIdx(savedProgress.stepIdx);
+    setResumeDecided(true);
+  };
+
+  const discardProgress = () => {
+    clearSavedProgress();
+    setResumeDecided(true);
+  };
+
+  // Cross-device/cross-browser resume: looks up an Incomplete Airtable record
+  // by email (no verification — consistent with the rest of this app, which
+  // has no accounts) and restores it. Returns via resumeByEmailStatus rather
+  // than a return value since WelcomeScreen only has the status to render.
+  const resumeByEmail = async (email: string) => {
+    setResumeByEmailStatus("loading");
+    try {
+      const result = await runFetchProgressByEmail({ data: { email } });
+      if (!result) {
+        setResumeByEmailStatus("not_found");
+        return;
+      }
+      setForm((f) => ({
+        ...f,
+        goldenTicket: result.form.goldenTicket,
+        path: (result.form.path as PathId | null) ?? f.path,
+        firstName: result.form.firstName,
+        lastName: result.form.lastName,
+        email: result.form.email,
+        motherTongue: result.form.motherTongue,
+        city: result.form.city,
+        country: result.form.country,
+        story: result.form.story,
+        beings: result.form.beings as FormState["beings"],
+        quizAnswers:
+          Object.keys(result.form.quizAnswers).length > 0 ? result.form.quizAnswers : f.quizAnswers,
+        agreementsAccepted: result.form.agreementsAccepted,
+      }));
+      setEvaluation(result.evaluation);
+      setDirection("forward");
+      const foundIdx = STEPS.findIndex((s) => s.key === result.stepKey);
+      setStepIdx(foundIdx >= 0 ? foundIdx : STEPS.findIndex((s) => s.key === "identity"));
+      setResumeDecided(true);
+      setResumeByEmailStatus("idle");
+    } catch (e) {
+      console.error("Could not resume progress by email.", e);
+      setResumeByEmailStatus("error");
+    }
+  };
+
   // Stores the applicant exactly once, at whichever point their journey ends:
   // straight after a blocking verdict, or after Agreements (the last step
   // before River Run) for everyone who gets that far.
@@ -310,10 +460,6 @@ function CeremonyIn() {
   // Deliberately never blocks navigation. The applicant has finished the
   // ceremony either way, and a storage outage should not strand them on the
   // last screen.
-  //
-  // NOTE: does not yet include form.agreementsAccepted — the middleware's
-  // schema (submit.functions.ts / aime-mdlwr) has no field for it. Adding
-  // one needs a coordinated change on that side too, not just here.
   const storeSubmission = async (
     result: EvaluationResult | null,
     quizAnswers?: Record<string, number>,
@@ -334,6 +480,7 @@ function CeremonyIn() {
           country: form.country,
           story: form.story,
           beings: form.beings.map((b) => ({ name: b.name, note: b.note })),
+          agreementsAccepted: form.agreementsAccepted,
           ...(quizAnswers ? { quizAnswers } : {}),
           ...(result ? { evaluation: result } : {}),
         },
@@ -357,6 +504,7 @@ function CeremonyIn() {
     setDirection("forward");
     if (step === "agreements") {
       void storeSubmission(evaluation, form.quizAnswers);
+      clearSavedProgress();
       setStepIdx((i) => Math.min(i + 1, STEPS.length - 1));
       popXpToast();
       return;
@@ -400,6 +548,26 @@ function CeremonyIn() {
     setStepIdx((i) => Math.min(i + 1, STEPS.length - 1));
     popXpToast();
   };
+
+  // Lets an applicant through when Gemini itself is down (503) rather than
+  // stranding them on the story step. Marked yellow/adminReview so a human
+  // still reads the reflection the AI never got to see.
+  const skipEvaluation = () => {
+    setEvalError(null);
+    const fallback: EvaluationResult = {
+      verdict: "yellow",
+      headline: "Your reflection wasn't reviewed automatically.",
+      reason:
+        "The AI reviewer was temporarily unavailable, so a mentor will read your reflection by hand before you continue down the river.",
+      canProceed: true,
+      adminReview: true,
+    };
+    setEvaluation(fallback);
+    setDirection("forward");
+    goTo("result");
+    popXpToast();
+  };
+
   const back = () => {
     setDirection("back");
     setStepIdx((i) => Math.max(i - 1, 0));
@@ -445,6 +613,11 @@ function CeremonyIn() {
                 golden={form.goldenTicket}
                 setGolden={(v) => setField("goldenTicket", v)}
                 onBegin={next}
+                resumeAvailable={Boolean(savedProgress) && !resumeDecided}
+                onResume={resumeProgress}
+                onDiscard={discardProgress}
+                onResumeByEmail={resumeByEmail}
+                resumeByEmailStatus={resumeByEmailStatus}
               />
             )}
             {step === "path" && (
@@ -469,6 +642,7 @@ function CeremonyIn() {
                 }
                 evaluating={evaluating}
                 error={evalError}
+                onSkipEvaluation={skipEvaluation}
               />
             )}
             {step === "result" && (
@@ -662,12 +836,23 @@ function WelcomeScreen({
   golden,
   setGolden,
   onBegin,
+  resumeAvailable,
+  onResume,
+  onDiscard,
+  onResumeByEmail,
+  resumeByEmailStatus,
 }: {
   golden: string;
   setGolden: (v: string) => void;
   onBegin: () => void;
+  resumeAvailable: boolean;
+  onResume: () => void;
+  onDiscard: () => void;
+  onResumeByEmail: (email: string) => void;
+  resumeByEmailStatus: "idle" | "loading" | "not_found" | "error";
 }) {
   const [open, setOpen] = useState(false);
+  const [resumeEmail, setResumeEmail] = useState("");
   return (
     <div className="ceremony-card mx-auto max-w-xl p-8 sm:p-11">
       <div className="inline-flex items-center gap-2 rounded-full border-[1.5px] border-ink px-3.5 py-1.5 font-mono text-[10px] tracking-[0.1em] text-ink uppercase">
@@ -680,6 +865,74 @@ function WelcomeScreen({
         This is where you meet the movement. A few gentle questions, a story you bring with you, and
         a path chosen with care. No forms that feel like forms.
       </p>
+
+      {resumeAvailable && (
+        <div className="animate-fade-in mt-6 flex flex-col gap-3 rounded-2xl border-[1.5px] border-ink/20 bg-primary-soft p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-ink">Welcome back.</div>
+            <p className="mt-0.5 text-[13px] text-ink/70">
+              You have a Ceremony-In in progress on this device. Continue where you left off, or
+              start fresh.
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button
+              onClick={onResume}
+              className="inline-flex items-center justify-center rounded-full bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
+            >
+              Continue
+            </button>
+            <button
+              onClick={onDiscard}
+              className="inline-flex items-center justify-center rounded-full border-[1.5px] border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-white"
+            >
+              Start fresh
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Cross-device resume: the local-storage banner above only ever shows
+          on the browser that saved it. This is the fallback for a returning
+          applicant on a different device/browser — looked up by email
+          against Airtable, no login required, consistent with the rest of
+          this app having no accounts anywhere. */}
+      <div className="animate-fade-in mt-4 rounded-2xl border-[1.5px] border-dashed border-ink/20 p-4">
+        <div className="text-[13px] font-semibold text-ink">Started on another device?</div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (resumeEmail.trim()) onResumeByEmail(resumeEmail.trim());
+          }}
+          className="mt-2 flex flex-col gap-2 sm:flex-row"
+        >
+          <input
+            type="email"
+            value={resumeEmail}
+            onChange={(e) => setResumeEmail(e.target.value)}
+            placeholder="you@example.com"
+            className="w-full flex-1 rounded-xl border-[1.5px] border-ink/25 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/25"
+          />
+          <button
+            type="submit"
+            disabled={resumeByEmailStatus === "loading" || !resumeEmail.trim()}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border-[1.5px] border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-primary-soft disabled:opacity-40"
+          >
+            {resumeByEmailStatus === "loading" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Continue with this email
+          </button>
+        </form>
+        {resumeByEmailStatus === "not_found" && (
+          <p role="status" className="mt-2 text-xs font-semibold text-secondary">
+            No Ceremony-In in progress for that email. Check the address, or begin below.
+          </p>
+        )}
+        {resumeByEmailStatus === "error" && (
+          <p role="status" className="mt-2 text-xs font-semibold text-destructive">
+            Couldn't reach the server to look that up. Try again in a moment.
+          </p>
+        )}
+      </div>
 
       <div className="mt-8 flex flex-wrap items-center gap-3">
         <button
@@ -1027,6 +1280,7 @@ function StoryScreen({
   setBeing,
   evaluating,
   error,
+  onSkipEvaluation,
 }: {
   story: string;
   setStory: (v: string) => void;
@@ -1034,6 +1288,7 @@ function StoryScreen({
   setBeing: (i: number, patch: Partial<Being>) => void;
   evaluating: boolean;
   error: string | null;
+  onSkipEvaluation: () => void;
 }) {
   const namedCount = beings.filter((b) => b.name.trim().length > 0).length;
   return (
@@ -1124,7 +1379,22 @@ function StoryScreen({
             Reading your words...
           </div>
         )}
-        {error && !evaluating && (
+        {error && !evaluating && error === "GEMINI_UNAVAILABLE" && (
+          <div className="animate-fade-in mt-4 flex flex-col gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              The AI reviewer is temporarily overloaded. You can try again, or skip ahead and let a
+              mentor review your reflection by hand.
+            </span>
+            <button
+              type="button"
+              onClick={onSkipEvaluation}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full border-[1.5px] border-ink bg-cream px-[18px] py-2.5 text-sm font-semibold text-ink transition hover:bg-primary-soft"
+            >
+              Skip and continue
+            </button>
+          </div>
+        )}
+        {error && !evaluating && error !== "GEMINI_UNAVAILABLE" && (
           <div className="animate-fade-in mt-4 rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
             {error}
           </div>
@@ -1542,7 +1812,14 @@ function NavBar({
   return (
     <nav
       aria-label="Ceremony steps"
-      className="animate-fade-in sticky bottom-4 mt-9 flex items-center justify-between gap-2.5 rounded-full border-[1.5px] border-ink/15 bg-cream p-2"
+      // mt-28 (not the old mt-9) is deliberate: a `sticky bottom-4` nav stays
+      // pinned to the viewport bottom for the whole scroll of a tall screen
+      // (story, with 4 beings; result), so whatever content sits in that
+      // covered strip is hidden until the container's true end is reached.
+      // This margin reserves blank space above the nav at least as tall as
+      // its own rendered footprint, so the last real field always scrolls
+      // clear before the nav could ever cover it.
+      className="animate-fade-in sticky bottom-4 mt-28 flex items-center justify-between gap-2.5 rounded-full border-[1.5px] border-ink/15 bg-cream p-2"
     >
       <button
         onClick={onBack}

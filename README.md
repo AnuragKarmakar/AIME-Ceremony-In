@@ -67,12 +67,18 @@ Create a `.env` file in the project root:
 
 ```
 GEMINI_API_KEY=your-gemini-api-key
-CEREMONY_API_URL=http://localhost:5110
+AIRTABLE_TOKEN=your-airtable-personal-access-token
+AIRTABLE_BASE_ID=appXXXXXXXXXXXXXX
+AIRTABLE_TABLE=Ceremony Submissions
+STRAPI_API_URL=http://127.0.0.1:1337
+STRAPI_API_TOKEN=optional-read-only-api-token
 ```
 
 `GEMINI_API_KEY` is required — the reflection evaluation server function ([evaluate.functions.ts](src/lib/evaluate.functions.ts)) throws if it's missing. It's read via `process.env`, so when deploying (e.g. to Vercel) it must be set directly in the hosting platform's environment variables — `.env` is git-ignored and never deployed.
 
-`CEREMONY_API_URL` points at the [aime-mdlwr](../aime-mdlwr) middleware, which stores completed submissions in Airtable. It defaults to `http://localhost:5110`, so local development needs no setting; a deployed frontend must point it at the deployed middleware. Submission happens in [submit.functions.ts](src/lib/submit.functions.ts), a server function, so the middleware never needs to be publicly reachable from the browser.
+`AIRTABLE_TOKEN`, `AIRTABLE_BASE_ID`, and `AIRTABLE_TABLE` are required for submission storage. Completed submissions are written directly to Airtable from [submit.functions.ts](src/lib/submit.functions.ts), a server function, so the Airtable token never reaches the browser. This replaced the standalone [aime-mdlwr](../aime-mdlwr) middleware, which is no longer needed for submission storage.
+
+`STRAPI_API_URL` and `STRAPI_API_TOKEN` are optional — Visa Path and Agreement copy is fetched from the [Strapi](../aime-ceremony-strapi) CMS by [strapi.functions.ts](src/lib/strapi.functions.ts) (a server function, so the token never reaches the browser), and the app falls back to hardcoded copy if either is unset, unreachable, or Strapi is mid-migration. `STRAPI_API_TOKEN` is only needed if the Public role's read permissions are ever locked down; the local setup script leaves those endpoints public. Strapi replaced the previous Wagtail CMS.
 
 ### Run the dev server
 

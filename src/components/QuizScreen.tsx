@@ -73,7 +73,10 @@ export function QuizScreen({
 
       <QuizProgressDots total={QUIZ_SECTIONS.length} current={sectionIdx} />
 
-      <div className="animate-fade-in sticky bottom-4 mt-[22px] flex items-center justify-between gap-3 rounded-full border-[1.5px] border-ink/15 bg-cream p-2">
+      {/* mt-28: see the matching comment on NavBar in routes/index.tsx — this
+          reserves enough clearance that the sticky bar never covers the last
+          question row while scrolling a long section. */}
+      <div className="animate-fade-in sticky bottom-4 mt-28 flex items-center justify-between gap-3 rounded-full border-[1.5px] border-ink/15 bg-cream p-2">
         <button
           onClick={goPrev}
           className="inline-flex items-center gap-1.5 rounded-full px-[18px] py-2.5 text-[13px] font-semibold text-secondary transition hover:bg-primary-soft"
