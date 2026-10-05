@@ -9,7 +9,7 @@ import {
   fetchVisaPaths,
   type AgreementContent,
   type VisaPathContent,
-} from "@/lib/strapi.functions";
+} from "@/lib/wagtail.functions";
 import { LanguageCombobox } from "@/components/LanguageCombobox";
 import { QuizScreen } from "@/components/QuizScreen";
 import { AgreementsScreen } from "@/components/AgreementsScreen";
@@ -109,7 +109,7 @@ const PATHS: {
 ];
 
 // Overlays editable copy (name/tagline/description/order) fetched from
-// Strapi onto the hardcoded PATHS. Mono code, swatch and banner always come
+// Wagtail onto the hardcoded PATHS. Mono code, swatch and banner always come
 // from PATHS — they're presentation, not CMS content. Falls back to PATHS
 // untouched whenever the CMS is unset, unreachable, or hasn't returned a
 // given path yet, so the app never shows a broken or empty Visa Path screen.
@@ -125,7 +125,7 @@ function mergePaths(base: typeof PATHS, cms: VisaPathContent[] | null): typeof P
 }
 
 // Placeholder agreement copy, shown until real content is entered in
-// Strapi. Unlike Visa Paths, agreements have no hardcoded presentation
+// Wagtail. Unlike Visa Paths, agreements have no hardcoded presentation
 // fields to preserve — the CMS list is used outright once it returns
 // anything, and this fallback only covers the CMS being unset/unreachable.
 const AGREEMENTS_FALLBACK: AgreementContent[] = [

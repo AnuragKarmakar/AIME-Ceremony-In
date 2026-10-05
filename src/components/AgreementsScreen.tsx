@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowLeft, ChevronRight, ShieldCheck } from "lucide-react";
-import type { AgreementContent } from "@/lib/strapi.functions";
+import type { AgreementContent } from "@/lib/wagtail.functions";
 
 function Paragraphs({ text, className }: { text: string; className?: string }) {
   const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
@@ -110,8 +110,8 @@ export function AgreementsScreen({
           <div role="group" aria-label={agreement.submissionTitle} className="mt-3.5 grid gap-2.5">
             {agreement.statements.length === 0 && (
               <p className="rounded-xl border border-dashed border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
-                This agreement has no statements to accept yet. Add at least one in the Strapi
-                admin (Content Manager → Agreement) before an applicant can continue past this page.
+                This agreement has no statements to accept yet. Add at least one in the Wagtail
+                admin before an applicant can continue past this page.
               </p>
             )}
             {agreement.statements.map((statement) => {
