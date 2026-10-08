@@ -47,7 +47,6 @@ The approval logic lives in [evaluate.functions.ts](src/lib/evaluate.functions.t
 - **Wagtail** CMS ([aime-ceremony-cms](../aime-ceremony-cms), Django) — Visa Path and Agreement content
 - **Airtable** — submission storage and Golden Ticket validation
 - Hosted on **AWS** (EC2 behind Caddy, with the Wagtail CMS alongside); [apprunner.yaml](apprunner.yaml) holds the App Runner configuration
-- Managed with **[Lovable](https://lovable.dev)** — commits pushed to the connected branch sync back into the Lovable editor
 
 ## Project structure
 
@@ -158,4 +157,3 @@ The app runs at `http://localhost:8080` by default (override with the `PORT` env
 ## Notes
 
 - The Gemini model used for evaluation is set in [evaluate.functions.ts](src/lib/evaluate.functions.ts). Google periodically retires model IDs for new API keys and projects, so if reflection evaluation starts failing with a `404`, check whether the configured model is still available to your key (`GET https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY`).
-- This project is connected to Lovable — avoid force-pushing or rewriting history on the connected branch, since that history sync also drives the Lovable editor.
