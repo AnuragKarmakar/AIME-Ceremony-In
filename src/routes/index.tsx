@@ -140,6 +140,7 @@ function mergePaths(base: typeof PATHS, cms: VisaPathContent[] | null): typeof P
 // anything, and this fallback only covers the CMS being unset/unreachable.
 const AGREEMENTS_FALLBACK: AgreementContent[] = [
   {
+    revisionId: null,
     slug: "agreement-one",
     order: 1,
     headerTitle: "Ceremony In #? | Agreement One (placeholder)",
@@ -156,6 +157,7 @@ const AGREEMENTS_FALLBACK: AgreementContent[] = [
     ],
   },
   {
+    revisionId: null,
     slug: "agreement-two",
     order: 2,
     headerTitle: "Ceremony In #? | Agreement Two (placeholder)",
@@ -414,12 +416,13 @@ function CeremonyIn() {
   // ceremony either way, and a storage outage should not strand them on the
   // last screen.
   //
-  // NOTE: does not yet include form.agreementsAccepted — the middleware's
-  // schema (submit.functions.ts / aime-mdlwr) has no field for it. Adding
-  // one needs a coordinated change on that side too, not just here.
+  // Agreements are only sent once the applicant has been through that step,
+  // as the version they were shown (revision id) plus the statements they
+  // ticked; the server verifies both against the live CMS.
   const storeSubmission = async (
     result: EvaluationResult | null,
     quizAnswers?: Record<string, number>,
+    includeAgreements = false,
   ) => {
     if (submittedRef.current) return;
     submittedRef.current = true;
@@ -438,6 +441,17 @@ function CeremonyIn() {
           story: form.story,
           beings: form.beings.map((b) => ({ name: b.name, note: b.note })),
           ...(quizAnswers ? { quizAnswers } : {}),
+          ...(includeAgreements
+            ? {
+                agreements: agreements.map((a) => ({
+                  slug: a.slug,
+                  revisionId: a.revisionId,
+                  acceptedStatementIds: a.statements
+                    .filter((s) => form.agreementsAccepted[`${a.slug}:${s.id}`])
+                    .map((s) => s.id),
+                })),
+              }
+            : {}),
           ...(result ? { evaluation: result } : {}),
         },
       });
@@ -459,7 +473,7 @@ function CeremonyIn() {
   const next = async () => {
     setDirection("forward");
     if (step === "agreements") {
-      void storeSubmission(evaluation, form.quizAnswers);
+      void storeSubmission(evaluation, form.quizAnswers, true);
       clearSavedProgress();
       setStepIdx((i) => Math.min(i + 1, STEPS.length - 1));
       popXpToast();

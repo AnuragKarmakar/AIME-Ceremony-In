@@ -27,6 +27,9 @@ export type AgreementStatement = z.infer<typeof AgreementStatementSchema>;
 // camelCase for the TS side.
 const AgreementContentSchema = z
   .object({
+    // Published revision id (null on a CMS that predates revisions). Stored
+    // with each submission as the exact version the applicant accepted.
+    revision_id: z.number().nullable().optional(),
     slug: z.string(),
     header_title: z.string(),
     header_description: z.string(),
@@ -40,6 +43,7 @@ const AgreementContentSchema = z
     order: z.number(),
   })
   .transform((v) => ({
+    revisionId: v.revision_id ?? null,
     slug: v.slug,
     headerTitle: v.header_title,
     headerDescription: v.header_description,
@@ -93,7 +97,10 @@ export const fetchVisaPaths = createServerFn({ method: "GET" }).handler(() =>
   fetchWagtailListing("visapaths", VisaPathContentSchema),
 );
 
+/** Server-side loader, also used by submitCeremony to verify what was accepted. */
+export function loadAgreements() {
+  return fetchWagtailListing("agreements", AgreementContentSchema);
+}
+
 // Fetches the agreement pages shown after the quiz, before River Run.
-export const fetchAgreements = createServerFn({ method: "GET" }).handler(() =>
-  fetchWagtailListing("agreements", AgreementContentSchema),
-);
+export const fetchAgreements = createServerFn({ method: "GET" }).handler(() => loadAgreements());

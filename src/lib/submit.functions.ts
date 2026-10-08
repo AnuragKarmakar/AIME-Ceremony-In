@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { checkGoldenTicket } from "./golden-ticket.server";
+import { buildAgreementRecords, type AgreementRecord } from "./agreements-consent.server";
 
 /** Visa path ids accepted by the wizard. */
 const VALID_PATHS = ["joy-corp", "presidents", "schools", "systems", "iksl"] as const;
@@ -18,6 +19,10 @@ const MAX_STORY_LENGTH = 5_000;
 const MAX_SHORT_TEXT_LENGTH = 200;
 const MAX_NOTE_LENGTH = 500;
 const MAX_REASON_LENGTH = 2_000;
+
+/** Generous ceilings for the Agreements step (3 agreements, 16 statements today). */
+const MAX_AGREEMENTS = 20;
+const MAX_STATEMENTS = 200;
 
 /** The wizard asks 61 questions; the ceiling leaves room for growth. */
 const MAX_QUIZ_ANSWERS = 200;
@@ -51,6 +56,21 @@ const InputSchema = z.object({
     .refine((answers) => Object.keys(answers).length <= MAX_QUIZ_ANSWERS, {
       message: `At most ${MAX_QUIZ_ANSWERS} quiz answers are allowed.`,
     })
+    .optional(),
+  /**
+   * What the applicant accepted on the Agreements step, as shown to them.
+   * Omitted when they never reached it (e.g. blocked at the verdict). The
+   * server re-checks this against the live CMS before storing it.
+   */
+  agreements: z
+    .array(
+      z.object({
+        slug: z.string().max(MAX_SHORT_TEXT_LENGTH),
+        revisionId: z.number().int().nullable(),
+        acceptedStatementIds: z.array(z.number().int()).max(MAX_STATEMENTS),
+      }),
+    )
+    .max(MAX_AGREEMENTS)
     .optional(),
   evaluation: z
     .object({
@@ -87,6 +107,7 @@ function toAirtableFields(
   data: SubmissionInput,
   submittedAt: Date,
   goldenTicketVerified: boolean,
+  agreementRecords: AgreementRecord[] | null,
 ): Record<string, unknown> {
   const firstName = clean(data.firstName);
   const lastName = clean(data.lastName);
@@ -130,6 +151,8 @@ function toAirtableFields(
       )
     : "";
   fields["Quiz Answer Count"] = data.quizAnswers ? Object.keys(data.quizAnswers).length : 0;
+
+  fields["Agreements Accepted"] = agreementRecords ? JSON.stringify(agreementRecords) : "";
 
   const evaluation = data.evaluation;
   fields.Verdict = clean(evaluation?.verdict);
@@ -243,7 +266,10 @@ export const submitCeremony = createServerFn({ method: "POST" })
     const goldenTicketVerified =
       clean(data.goldenTicket).length > 0 &&
       (await checkGoldenTicket(data.goldenTicket, data.firstName, data.lastName)) === "valid";
-    const fields = toAirtableFields(data, new Date(), goldenTicketVerified);
+    const agreementRecords = data.agreements?.length
+      ? await buildAgreementRecords(data.agreements)
+      : null;
+    const fields = toAirtableFields(data, new Date(), goldenTicketVerified, agreementRecords);
     const id = await createAirtableRecord(fields);
     return { id };
   });
