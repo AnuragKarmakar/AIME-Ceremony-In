@@ -108,7 +108,7 @@ GEMINI_API_KEY=your-gemini-api-key
 AIRTABLE_TOKEN=your-airtable-personal-access-token
 AIRTABLE_BASE_ID=appXXXXXXXXXXXXXX
 AIRTABLE_TABLE=Ceremony Submissions
-WAGTAIL_API_URL=http://127.0.0.1:8001
+WAGTAIL_API_URL=http://127.0.0.1:8000
 AIRTABLE_TICKETS_TOKEN=your-airtable-personal-access-token
 AIRTABLE_TICKETS_BASE_ID=appXXXXXXXXXXXXXX
 AIRTABLE_TICKETS_TICKET_TABLE=tblXXXXXXXXXXXXXX
@@ -130,10 +130,10 @@ python -m venv venv
 ./venv/Scripts/activate        # or: source venv/bin/activate
 pip install -r requirements.txt
 python manage.py migrate
-python manage.py runserver 127.0.0.1:8001
+python manage.py runserver
 ```
 
-Then set `WAGTAIL_API_URL=http://127.0.0.1:8001`. The API exposes `/api/v2/visapaths/` and `/api/v2/agreements/`, and content is edited in the Wagtail admin under Snippets. Port 8000 is the Django default, but on some Windows machines it falls in a reserved range, so 8001 is used here.
+Then set `WAGTAIL_API_URL=http://127.0.0.1:8000`. The API exposes `/api/v2/visapaths/` and `/api/v2/agreements/`, and content is edited in the Wagtail admin under Snippets. The frontend reads `WAGTAIL_API_URL` when the dev server starts, so restart `npm run dev` after changing it. If port 8000 is taken or reserved on your machine, run `python manage.py runserver 8001` and use that port in the URL instead.
 
 ### Run the dev server
 
