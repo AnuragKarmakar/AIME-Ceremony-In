@@ -1,10 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { checkGoldenTicket } from "./golden-ticket.server";
 
 const InputSchema = z.object({
   story: z.string(),
   path: z.string().nullable().optional(),
   name: z.string().optional(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
   beings: z.array(z.string()).optional(),
   goldenTicket: z.string().optional(),
 });
@@ -24,7 +27,13 @@ export type EvaluationResult = {
 export const evaluateStory = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => InputSchema.parse(data))
   .handler(async ({ data }): Promise<EvaluationResult> => {
-    if (!data.goldenTicket?.trim()) return reviewReflection(data);
+    // A ticket only counts when it is verified against Airtable and belongs to
+    // this applicant's name. Anything else (wrong number, name mismatch, or the
+    // lookup being unavailable) is reviewed like a normal applicant.
+    const ticketValid =
+      !!data.goldenTicket?.trim() &&
+      (await checkGoldenTicket(data.goldenTicket, data.firstName, data.lastName)) === "valid";
+    if (!ticketValid) return reviewReflection(data);
 
     // Golden Ticket holders are pre-verified by whoever invited them, so their
     // visa is always approved once they complete the ceremony steps: the

@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { checkGoldenTicket } from "./golden-ticket.server";
 
 /** Visa path ids accepted by the wizard. */
 const VALID_PATHS = ["joy-corp", "presidents", "schools", "systems", "iksl"] as const;
@@ -82,7 +83,11 @@ type SubmissionInput = z.infer<typeof InputSchema>;
  * ONLY place that knows Airtable column names — schema changes should touch
  * nothing else. Ported 1:1 from the retired .NET middleware's AirtableRecordMapper.
  */
-function toAirtableFields(data: SubmissionInput, submittedAt: Date): Record<string, unknown> {
+function toAirtableFields(
+  data: SubmissionInput,
+  submittedAt: Date,
+  goldenTicketVerified: boolean,
+): Record<string, unknown> {
   const firstName = clean(data.firstName);
   const lastName = clean(data.lastName);
   const pathId = clean(data.path);
@@ -101,7 +106,9 @@ function toAirtableFields(data: SubmissionInput, submittedAt: Date): Record<stri
     "Path Id": pathId,
     Path: PATH_LABELS[pathId] ?? pathId,
     "Golden Ticket": clean(data.goldenTicket),
-    "Has Golden Ticket": clean(data.goldenTicket).length > 0,
+    // The number as typed is kept for reference; this flag is only true when it
+    // was verified against the Tickets table for this applicant's name.
+    "Has Golden Ticket": goldenTicketVerified,
     "Submitted At": submittedAt.toISOString(),
   };
 
@@ -233,7 +240,10 @@ async function createAirtableRecord(fields: Record<string, unknown>): Promise<st
 export const submitCeremony = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => InputSchema.parse(data))
   .handler(async ({ data }): Promise<SubmitResult> => {
-    const fields = toAirtableFields(data, new Date());
+    const goldenTicketVerified =
+      clean(data.goldenTicket).length > 0 &&
+      (await checkGoldenTicket(data.goldenTicket, data.firstName, data.lastName)) === "valid";
+    const fields = toAirtableFields(data, new Date(), goldenTicketVerified);
     const id = await createAirtableRecord(fields);
     return { id };
   });

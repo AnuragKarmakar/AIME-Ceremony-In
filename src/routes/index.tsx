@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { evaluateStory, type EvaluationResult } from "@/lib/evaluate.functions";
 import { submitCeremony } from "@/lib/submit.functions";
+import { verifyGoldenTicket } from "@/lib/golden-ticket.functions";
 import {
   fetchAgreements,
   fetchVisaPaths,
@@ -39,6 +40,15 @@ type StepKey =
 // who doesn't pass the reflection evaluation (canProceed === false) never
 // reaches the Relational Check-in survey. Agreements sit after the quiz and
 // before River Run.
+/** What the applicant sees when the identity-step ticket check does not pass. */
+const TICKET_MESSAGES = {
+  invalid:
+    "We couldn't match that Golden Ticket to your first and last name. Check the number and the name you entered, or continue without a ticket.",
+  unavailable:
+    "We couldn't check your Golden Ticket just now. Please try again in a moment, or continue without a ticket.",
+  rate_limited: "Too many attempts. Please wait a few minutes and try again.",
+} as const;
+
 const STEPS: { key: StepKey; label: string }[] = [
   { key: "welcome", label: "Welcome" },
   { key: "path", label: "Visa Path" },
@@ -272,6 +282,15 @@ function CeremonyIn() {
   const runEvaluate = useServerFn(evaluateStory);
   const runSubmit = useServerFn(submitCeremony);
 
+  // Golden Ticket numbers are checked against Airtable (and the applicant's
+  // name) when they leave the identity step, the first point where both names
+  // are known. The server re-checks at evaluation and submission, so this is
+  // about telling the applicant early, not about trust.
+  const runVerifyTicket = useServerFn(verifyGoldenTicket);
+  const [ticketChecking, setTicketChecking] = useState(false);
+  const [ticketError, setTicketError] = useState<string | null>(null);
+  const verifiedTicketKey = useRef("");
+
   // Guards against storing the same applicant twice if they navigate back and
   // forward through the end of the flow.
   const submittedRef = useRef(false);
@@ -298,6 +317,11 @@ function CeremonyIn() {
   const setField = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
+  // A stale "no match" message should not outlive the inputs it was about.
+  useEffect(() => {
+    setTicketError(null);
+  }, [form.goldenTicket, form.firstName, form.lastName]);
+
   // Not memoized: every check here is a handful of cheap string ops, and
   // `form` changes on every keystroke anyway (the only step where this
   // matters), so a useMemo would never hit its cache in practice.
@@ -316,6 +340,13 @@ function CeremonyIn() {
       form.country.trim(),
     );
     if (!canAdvance) blockedReason = "Fill in every required field, including a valid email.";
+    else if (ticketChecking) {
+      canAdvance = false;
+      blockedReason = "Checking your Golden Ticket…";
+    } else if (ticketError) {
+      canAdvance = false;
+      blockedReason = "Fix or remove your Golden Ticket to continue.";
+    }
   } else if (step === "story") {
     canAdvance =
       form.story.trim().length >= 10 &&
@@ -434,6 +465,32 @@ function CeremonyIn() {
       popXpToast();
       return;
     }
+    if (step === "identity" && form.goldenTicket.trim()) {
+      const key = `${form.goldenTicket.trim()}|${form.firstName.trim()}|${form.lastName.trim()}`.toLowerCase();
+      if (verifiedTicketKey.current !== key) {
+        setTicketChecking(true);
+        setTicketError(null);
+        try {
+          const outcome = await runVerifyTicket({
+            data: {
+              ticket: form.goldenTicket,
+              firstName: form.firstName,
+              lastName: form.lastName,
+            },
+          });
+          if (outcome !== "valid") {
+            setTicketError(TICKET_MESSAGES[outcome]);
+            return;
+          }
+          verifiedTicketKey.current = key;
+        } catch {
+          setTicketError(TICKET_MESSAGES.unavailable);
+          return;
+        } finally {
+          setTicketChecking(false);
+        }
+      }
+    }
     if (step === "story") {
       setEvaluating(true);
       setEvalError(null);
@@ -443,6 +500,8 @@ function CeremonyIn() {
             story: form.story,
             path: form.path,
             name: `${form.firstName} ${form.lastName}`.trim(),
+            firstName: form.firstName,
+            lastName: form.lastName,
             goldenTicket: form.goldenTicket,
             beings: form.beings
               .map((b) =>
@@ -550,7 +609,14 @@ function CeremonyIn() {
                 onSelect={(p) => setField("path", p)}
               />
             )}
-            {step === "identity" && <IdentityScreen form={form} setField={setField} />}
+            {step === "identity" && (
+              <IdentityScreen
+                form={form}
+                setField={setField}
+                ticketError={ticketError}
+                onRemoveTicket={() => setField("goldenTicket", "")}
+              />
+            )}
             {step === "story" && (
               <StoryScreen
                 story={form.story}
@@ -835,18 +901,21 @@ function WelcomeScreen({
         >
           <label className="block">
             <span className="block font-mono text-[10px] tracking-[0.12em] text-secondary uppercase">
-              Golden ticket or referral code
+              Golden Ticket number
             </span>
             <input
               value={golden}
-              onChange={(e) => setGolden(e.target.value)}
-              placeholder="e.g. RIVER-SUNRISE-2026"
+              onChange={(e) => setGolden(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="e.g. 428"
               aria-describedby="golden-ticket-help"
               className="mt-2 w-full rounded-xl border-[1.5px] border-ink/25 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/25"
             />
           </label>
           <p id="golden-ticket-help" className="mt-2 text-xs text-ink/70">
-            Optional. A Golden Ticket unlocks mentor invitations and early stages on the River Run.
+            Optional. Enter the number on your ticket. We check it against the first and last name you
+            give next. A Golden Ticket unlocks mentor invitations and early stages on the River Run.
           </p>
         </div>
       )}
@@ -1078,9 +1147,13 @@ function PathScreen({
 function IdentityScreen({
   form,
   setField,
+  ticketError,
+  onRemoveTicket,
 }: {
   form: FormState;
   setField: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+  ticketError: string | null;
+  onRemoveTicket: () => void;
 }) {
   return (
     <div className="ceremony-card mx-auto max-w-xl p-7 sm:p-10">
@@ -1143,6 +1216,23 @@ function IdentityScreen({
           />
         </Field>
       </div>
+      {ticketError && (
+        <div
+          role="alert"
+          className="mt-5 rounded-2xl border-[1.5px] border-gold bg-cream p-4 text-sm text-ink"
+        >
+          <p>
+            <span aria-hidden="true">🎫</span> {ticketError}
+          </p>
+          <button
+            type="button"
+            onClick={onRemoveTicket}
+            className="mt-2 text-xs font-semibold underline underline-offset-2"
+          >
+            Continue without a Golden Ticket
+          </button>
+        </div>
+      )}
     </div>
   );
 }
