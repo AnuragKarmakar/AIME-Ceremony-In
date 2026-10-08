@@ -1,6 +1,29 @@
 import { memo, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
-import { QUIZ_SECTIONS, type QuizScale } from "@/lib/quiz.data";
+import { QUIZ_SECTIONS, type QuizQuestion, type QuizScale } from "@/lib/quiz.data";
+
+/** Max questions on one card, so long sections don't force a long scroll. */
+const QUESTIONS_PER_CARD = 4;
+
+type QuizPage = {
+  sectionIdx: number;
+  /** 1-based position of this card within its section. */
+  part: number;
+  parts: number;
+  questions: QuizQuestion[];
+};
+
+// A section of 13 becomes cards of 4, 4, 4 and 1. Answers stay keyed by
+// question id, so paging only changes what is shown, not what is stored.
+const QUIZ_PAGES: QuizPage[] = QUIZ_SECTIONS.flatMap((s, sectionIdx) => {
+  const parts = Math.max(1, Math.ceil(s.questions.length / QUESTIONS_PER_CARD));
+  return Array.from({ length: parts }, (_, i) => ({
+    sectionIdx,
+    part: i + 1,
+    parts,
+    questions: s.questions.slice(i * QUESTIONS_PER_CARD, (i + 1) * QUESTIONS_PER_CARD),
+  }));
+});
 
 export function QuizScreen({
   answers,
@@ -13,10 +36,12 @@ export function QuizScreen({
   onBack: () => void;
   onFinish: () => void;
 }) {
-  const [sectionIdx, setSectionIdx] = useState(0);
+  const [pageIdx, setPageIdx] = useState(0);
   const [direction, setDirection] = useState<"forward" | "back">("forward");
-  const isFirst = sectionIdx === 0;
-  const isLast = sectionIdx === QUIZ_SECTIONS.length - 1;
+  const isFirst = pageIdx === 0;
+  const isLast = pageIdx === QUIZ_PAGES.length - 1;
+  const page = QUIZ_PAGES[pageIdx];
+  const sectionIdx = page.sectionIdx;
   const section = QUIZ_SECTIONS[sectionIdx];
 
   const goPrev = () => {
@@ -27,9 +52,9 @@ export function QuizScreen({
     setDirection("back");
     // Clamped: isFirst/isLast are snapshots from the last render, so several
     // clicks fired before React re-renders (e.g. a fast double-click) would
-    // otherwise push sectionIdx out of QUIZ_SECTIONS' bounds and crash on
-    // the next render's QUIZ_SECTIONS[sectionIdx] access.
-    setSectionIdx((i) => Math.max(i - 1, 0));
+    // otherwise push pageIdx out of QUIZ_PAGES' bounds and crash on the
+    // next render's QUIZ_PAGES[pageIdx] access.
+    setPageIdx((i) => Math.max(i - 1, 0));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -39,26 +64,27 @@ export function QuizScreen({
       return;
     }
     setDirection("forward");
-    setSectionIdx((i) => Math.min(i + 1, QUIZ_SECTIONS.length - 1));
+    setPageIdx((i) => Math.min(i + 1, QUIZ_PAGES.length - 1));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
     <div className="ceremony-card mx-auto max-w-xl overflow-x-clip p-7 sm:p-10">
       <div
-        key={sectionIdx}
+        key={pageIdx}
         className={direction === "forward" ? "animate-step-forward" : "animate-step-back"}
       >
         <div className="font-mono text-[11px] tracking-[0.16em] text-secondary uppercase">
           {section.subtitle ?? "A relational check-in"}
+          {page.parts > 1 && ` · Part ${page.part} of ${page.parts}`}
         </div>
         <h2 className="mt-2 text-[28px] leading-tight text-ink">{section.title}</h2>
-        {section.intro && (
+        {section.intro && page.part === 1 && (
           <p className="mt-2 text-[13px] leading-relaxed text-ink/75">{section.intro}</p>
         )}
 
         <div className="mt-6 grid gap-[26px]">
-          {section.questions.map((q) => (
+          {page.questions.map((q) => (
             <QuizQuestionRow
               key={q.id}
               id={q.id}
