@@ -14,20 +14,12 @@ import {
 import { LanguageCombobox } from "@/components/LanguageCombobox";
 import { QuizScreen } from "@/components/QuizScreen";
 import { AgreementsScreen } from "@/components/AgreementsScreen";
-import { AmbientBackground } from "@/components/AmbientBackground";
 import { SplashScreen } from "@/components/SplashScreen";
 import { XpToast } from "@/components/XpToast";
+import { FormNav } from "@/components/FormNav";
 import { DEFAULT_QUIZ_ANSWERS } from "@/lib/quiz.data";
-import {
-  ChevronDown,
-  ChevronRight,
-  ArrowLeft,
-  Lock,
-  Loader2,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
-} from "lucide-react";
+import { XP_PER_QUIZ_PAGE } from "@/lib/quiz.pages";
+import { ChevronDown, Loader2, Lock, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: CeremonyIn,
@@ -59,6 +51,50 @@ const STEPS: { key: StepKey; label: string }[] = [
   { key: "agreements", label: "Agreements" },
   { key: "journey", label: "River Run" },
 ];
+
+/**
+ * One solid background per step (the design's level swatches: solids reduce
+ * visual anxiety, unlike gradients). Steps are matched to swatches by name;
+ * "Who you are" has no swatch of its own and takes Systems. Light
+ * backgrounds switch the text on them to dark ink for contrast.
+ */
+const STEP_THEME: Record<StepKey, { bg: string; tone: "dark" | "light" }> = {
+  welcome: { bg: "#47289F", tone: "dark" }, // L1 Welcome
+  path: { bg: "#571397", tone: "dark" }, // L2 Visa Path
+  identity: { bg: "#005454", tone: "dark" }, // L6 Systems
+  story: { bg: "#0404AC", tone: "dark" }, // L3 Your Story
+  result: { bg: "#7989FF", tone: "light" }, // L8 Ceremony
+  quiz: { bg: "#CFC52C", tone: "light" }, // L4 Practice
+  agreements: { bg: "#AA2E00", tone: "dark" }, // L7 Commitments
+  journey: { bg: "#2D712A", tone: "dark" }, // L5 Mentoring
+};
+
+/** CSS variables for text and accents that sit directly on the step background. */
+function stepThemeVars(step: StepKey): React.CSSProperties {
+  const { bg, tone } = STEP_THEME[step];
+  const vars =
+    tone === "dark"
+      ? {
+          "--step-fg": "oklch(0.99 0.01 85)",
+          "--step-fg-soft": "oklch(0.99 0.01 85 / 0.82)",
+          "--step-fg-faint": "oklch(0.99 0.01 85 / 0.25)",
+          "--step-label": "var(--color-gold)",
+          "--step-highlight": "var(--color-gold)",
+          // Form navigation's primary action (the design's gold "NEXT" pill).
+          "--step-cta-bg": "#D4BF5C",
+          "--step-cta-fg": "var(--color-ink)",
+        }
+      : {
+          "--step-fg": "var(--color-ink)",
+          "--step-fg-soft": "oklch(0.16 0.02 280 / 0.75)",
+          "--step-fg-faint": "oklch(0.16 0.02 280 / 0.22)",
+          "--step-label": "var(--color-ink)",
+          "--step-highlight": "oklch(0.99 0.01 85)",
+          "--step-cta-bg": "var(--color-ink)",
+          "--step-cta-fg": "oklch(0.99 0.01 85)",
+        };
+  return { "--step-bg": bg, ...vars } as React.CSSProperties;
+}
 
 type PathId = "joy-corp" | "presidents" | "schools" | "systems" | "iksl";
 
@@ -211,6 +247,9 @@ type SavedProgress = {
   stepIdx: number;
   form: FormState;
   evaluation: EvaluationResult | null;
+  /** Quiz page the applicant was on, and how many pages earned XP. Optional: older saves lack them. */
+  quizPage?: number;
+  quizPagesDone?: number;
 };
 
 function loadSavedProgress(): SavedProgress | null {
@@ -220,7 +259,11 @@ function loadSavedProgress(): SavedProgress | null {
     const parsed = JSON.parse(raw) as Partial<SavedProgress>;
     // Bail on anything that doesn't look like our own shape — a version bump
     // after a form-field change, corrupted JSON, or another app's leftover key.
-    if (parsed.version !== PROGRESS_STORAGE_VERSION || !parsed.form || typeof parsed.stepIdx !== "number") {
+    if (
+      parsed.version !== PROGRESS_STORAGE_VERSION ||
+      !parsed.form ||
+      typeof parsed.stepIdx !== "number"
+    ) {
       return null;
     }
     return parsed as SavedProgress;
@@ -241,6 +284,10 @@ function CeremonyIn() {
   const [stepIdx, setStepIdx] = useState(0);
   const [direction, setDirection] = useState<"forward" | "back">("forward");
   const step = STEPS[stepIdx].key;
+
+  useEffect(() => {
+    document.body.style.backgroundColor = STEP_THEME[step].bg;
+  }, [step]);
 
   // Gently return to the top whenever the step changes so each screen
   // starts in view instead of wherever the last one was scrolled to.
@@ -367,6 +414,12 @@ function CeremonyIn() {
 
   // Stable reference so the memoized QuizQuestionRow children only re-render
   // when their own value changes, not on every sibling slider drag.
+  // Quiz position lives here (not in QuizScreen) so a refresh resumes on the
+  // same page; quizPagesDone counts pages that have already earned XP.
+  const [quizPage, setQuizPage] = useState(0);
+  const [quizPagesDone, setQuizPagesDone] = useState(0);
+  const xp = stepIdx * 100 + quizPagesDone * XP_PER_QUIZ_PAGE;
+
   const setQuizAnswer = useCallback((id: string, v: number) => {
     setForm((f) => ({ ...f, quizAnswers: { ...f.quizAnswers, [id]: v } }));
   }, []);
@@ -387,17 +440,26 @@ function CeremonyIn() {
   useEffect(() => {
     if (stepIdx === 0) return;
     try {
-      const payload: SavedProgress = { version: PROGRESS_STORAGE_VERSION, stepIdx, form, evaluation };
+      const payload: SavedProgress = {
+        version: PROGRESS_STORAGE_VERSION,
+        stepIdx,
+        form,
+        evaluation,
+        quizPage,
+        quizPagesDone,
+      };
       localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(payload));
     } catch {
       // Storage full or unavailable — progress just won't resume, not fatal.
     }
-  }, [form, stepIdx, evaluation]);
+  }, [form, stepIdx, evaluation, quizPage, quizPagesDone]);
 
   const resumeProgress = () => {
     if (!savedProgress) return;
     setForm(savedProgress.form);
     setEvaluation(savedProgress.evaluation);
+    setQuizPage(savedProgress.quizPage ?? 0);
+    setQuizPagesDone(savedProgress.quizPagesDone ?? 0);
     setDirection("forward");
     setStepIdx(savedProgress.stepIdx);
     setResumeDecided(true);
@@ -463,8 +525,10 @@ function CeremonyIn() {
   };
 
   const [showXpToast, setShowXpToast] = useState(false);
+  const [xpToastAmount, setXpToastAmount] = useState(100);
   const xpToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const popXpToast = () => {
+  const popXpToast = (amount = 100) => {
+    setXpToastAmount(amount);
     setShowXpToast(true);
     clearTimeout(xpToastTimer.current);
     xpToastTimer.current = setTimeout(() => setShowXpToast(false), 1400);
@@ -480,7 +544,8 @@ function CeremonyIn() {
       return;
     }
     if (step === "identity" && form.goldenTicket.trim()) {
-      const key = `${form.goldenTicket.trim()}|${form.firstName.trim()}|${form.lastName.trim()}`.toLowerCase();
+      const key =
+        `${form.goldenTicket.trim()}|${form.firstName.trim()}|${form.lastName.trim()}`.toLowerCase();
       if (verifiedTicketKey.current !== key) {
         setTicketChecking(true);
         setTicketError(null);
@@ -566,6 +631,13 @@ function CeremonyIn() {
     popXpToast();
   };
 
+  const completeQuizPage = (pageIdx: number) => {
+    if (pageIdx + 1 > quizPagesDone) {
+      setQuizPagesDone(pageIdx + 1);
+      popXpToast(XP_PER_QUIZ_PAGE);
+    }
+  };
+
   const back = () => {
     setDirection("back");
     setStepIdx((i) => Math.max(i - 1, 0));
@@ -583,10 +655,14 @@ function CeremonyIn() {
   const pathName = paths.find((p) => p.id === form.path)?.name ?? null;
 
   return (
-    <>
+    <div className="step-theme" style={stepThemeVars(step)}>
       <SplashScreen />
-      <AmbientBackground step={step} />
-      <XpToast show={showXpToast} />
+      <div
+        aria-hidden="true"
+        className="fixed inset-0"
+        style={{ background: "var(--step-bg)" }}
+      />
+      <XpToast show={showXpToast} amount={xpToastAmount} />
       <main className="relative z-[1] mx-auto flex min-h-dvh max-w-3xl flex-col px-5 py-[52px] pb-[90px]">
         <CeremonyHeader
           onHome={() => goTo("welcome")}
@@ -594,6 +670,7 @@ function CeremonyIn() {
           pathName={showIdentityBadge ? pathName : null}
           stepIdx={stepIdx}
           totalSteps={STEPS.length}
+          xp={xp}
           stepLabel={STEPS[stepIdx].label}
           identityDone={stepIdx > identityIdx}
           storyDone={stepIdx > storyIdx}
@@ -655,8 +732,12 @@ function CeremonyIn() {
               <QuizScreen
                 answers={form.quizAnswers}
                 setAnswer={setQuizAnswer}
+                pageIdx={quizPage}
+                setPageIdx={setQuizPage}
+                totalXp={xp}
                 onBack={back}
                 onFinish={next}
+                onPageComplete={completeQuizPage}
               />
             )}
             {step === "agreements" && (
@@ -668,23 +749,30 @@ function CeremonyIn() {
                 onFinish={next}
               />
             )}
-            {step === "journey" && <JourneyScreen form={form} />}
+            {step === "journey" && <JourneyScreen form={form} xp={xp} />}
           </div>
         </section>
 
         {step !== "welcome" && step !== "quiz" && step !== "agreements" && (
-          <NavBar
-            canAdvance={canAdvance}
+          <FormNav
             onBack={back}
             onNext={next}
-            isLast={stepIdx === STEPS.length - 1}
-            step={step}
-            evaluating={evaluating}
-            blockedReason={blockedReason}
+            canAdvance={canAdvance}
+            busy={evaluating}
+            nextLabel={
+              evaluating
+                ? "Reading your words..."
+                : step === "story"
+                  ? "See your Ceremony"
+                  : "Next"
+            }
+            status={blockedReason || undefined}
+            label={pathName ?? undefined}
+            done={stepIdx === STEPS.length - 1 ? "Welcome to the river." : undefined}
           />
         )}
       </main>
-    </>
+    </div>
   );
 }
 
@@ -696,6 +784,7 @@ function CeremonyHeader({
   pathName,
   stepIdx,
   totalSteps,
+  xp,
   stepLabel,
   identityDone,
   storyDone,
@@ -707,6 +796,7 @@ function CeremonyHeader({
   pathName?: string | null;
   stepIdx: number;
   totalSteps: number;
+  xp: number;
   stepLabel: string;
   identityDone: boolean;
   storyDone: boolean;
@@ -715,7 +805,6 @@ function CeremonyHeader({
 }) {
   const hasBadge = Boolean(name || pathName);
   const ringPct = Math.round((stepIdx / (totalSteps - 1)) * 100);
-  const xp = stepIdx * 100;
   const badges: { label: string; unlocked: boolean; icon: string }[] = [
     { label: "Identity", unlocked: identityDone, icon: "/design/badge-star.png" },
     { label: "Story", unlocked: storyDone, icon: "/design/badge-smiley.png" },
@@ -734,17 +823,17 @@ function CeremonyHeader({
         >
           <img src="/design/logo-final.png" alt="" className="h-12 w-12 object-contain" />
           <div className="text-left leading-tight">
-            <div className="font-mono text-[10px] tracking-[0.18em] text-gold uppercase">
+            <div className="font-mono text-[10px] tracking-[0.18em] text-[var(--step-label)] uppercase">
               AIME Imagi-Nation
             </div>
-            <div className="font-display text-[22px] text-[oklch(0.99_0.01_85)]">Ceremony-In</div>
+            <div className="font-display text-[22px] text-[var(--step-fg)]">Ceremony-In</div>
           </div>
         </button>
         {hasBadge && (
-          <div className="animate-fade-in rounded-full border-[1.5px] border-ink bg-cream px-[18px] py-2 text-right">
-            {name && <div className="font-display text-sm text-ink">{name}</div>}
+          <div className="animate-fade-in text-right">
+            {name && <div className="font-display text-base text-[var(--step-fg)]">{name}</div>}
             {pathName && (
-              <div className="font-mono text-[9px] tracking-[0.12em] text-secondary uppercase">
+              <div className="font-mono text-[10px] tracking-[0.12em] text-[var(--step-fg-soft)] uppercase">
                 {pathName}
               </div>
             )}
@@ -761,18 +850,16 @@ function CeremonyHeader({
           <div
             className="grid h-11 w-11 shrink-0 place-items-center rounded-full transition-[background] duration-500"
             style={{
-              background: `conic-gradient(var(--color-gold) ${ringPct}%, oklch(0.99 0.01 85 / 0.18) 0)`,
+              background: `conic-gradient(var(--step-highlight) ${ringPct}%, var(--step-fg-faint) 0)`,
             }}
           >
-            <div className="grid h-8 w-8 place-items-center rounded-full bg-background">
+            <div className="grid h-8 w-8 place-items-center rounded-full bg-[var(--step-bg)]">
               <img src="/design/badge-star.png" alt="" className="h-3.5 w-3.5 object-contain" />
             </div>
           </div>
           <div>
-            <div className="font-mono text-[13px] font-bold text-[oklch(0.99_0.01_85)]">
-              {xp} XP
-            </div>
-            <div className="font-mono text-[9px] tracking-[0.06em] text-gold uppercase">
+            <div className="font-mono text-[13px] font-bold text-[var(--step-fg)]">{xp} XP</div>
+            <div className="font-mono text-[9px] tracking-[0.06em] text-[var(--step-label)] uppercase">
               {ringPct}% complete
             </div>
           </div>
@@ -814,19 +901,19 @@ function CeremonyHeader({
               style={{
                 background:
                   i < stepIdx
-                    ? "var(--color-primary)"
+                    ? "var(--step-fg)"
                     : i === stepIdx
-                      ? "var(--color-gold)"
-                      : "oklch(0.99 0.01 85 / 0.25)",
+                      ? "var(--step-highlight)"
+                      : "var(--step-fg-faint)",
               }}
             />
           ))}
         </div>
-        <div className="mt-2 flex justify-between font-mono text-[10px] tracking-[0.14em] text-[oklch(0.92_0.03_85_/_0.92)] uppercase">
+        <div className="mt-2 flex justify-between font-mono text-[10px] tracking-[0.14em] text-[var(--step-fg-soft)] uppercase">
           <span>
             Level {stepIdx + 1} of {totalSteps}
           </span>
-          <span className="text-gold">{stepLabel}</span>
+          <span className="text-[var(--step-label)]">{stepLabel}</span>
         </div>
       </div>
     </div>
@@ -857,7 +944,7 @@ function WelcomeScreen({
         <span aria-hidden="true">✦</span> You are welcome here
       </div>
       <h1 className="mt-5 text-[46px] leading-[0.98] text-ink">
-        Step into the <span className="text-primary">Ceremony-In</span>.
+        Step into the <span style={{ color: STEP_THEME.welcome.bg }}>Ceremony-In</span>.
       </h1>
       <p className="mt-4 max-w-md text-base leading-relaxed text-ink/65">
         This is where you meet the movement. A few gentle questions, a story you bring with you, and
@@ -928,8 +1015,9 @@ function WelcomeScreen({
             />
           </label>
           <p id="golden-ticket-help" className="mt-2 text-xs text-ink/70">
-            Optional. Enter the number on your ticket. We check it against the first and last name you
-            give next. A Golden Ticket unlocks mentor invitations and early stages on the River Run.
+            Optional. Enter the number on your ticket. We check it against the first and last name
+            you give next. A Golden Ticket unlocks mentor invitations and early stages on the River
+            Run.
           </p>
         </div>
       )}
@@ -995,13 +1083,13 @@ function PathScreen({
   return (
     <div>
       <div className="mx-auto max-w-xl">
-        <div className="font-mono text-[11px] tracking-[0.16em] text-gold uppercase">
+        <div className="font-mono text-[11px] tracking-[0.16em] text-[var(--step-label)] uppercase">
           Choose a visa path
         </div>
-        <h2 className="mt-2 text-[34px] leading-[1.02] text-[oklch(0.99_0.01_85)]">
+        <h2 className="mt-2 text-[34px] leading-[1.02] text-[var(--step-fg)]">
           Which doorway feels most like yours?
         </h2>
-        <p className="mt-2 text-[15px] text-[oklch(0.95_0.02_85_/_0.88)]">
+        <p className="mt-2 text-[15px] text-[var(--step-fg-soft)]">
           Pick the one that fits today. You can carry more than one over time.
         </p>
       </div>
@@ -1107,8 +1195,7 @@ function PathScreen({
                 className="block h-2 rounded-full transition-[width] duration-300"
                 style={{
                   width: i === carouselIdx ? "22px" : "8px",
-                  background:
-                    i === carouselIdx ? "var(--color-primary)" : "oklch(0.95 0.02 85 / 0.45)",
+                  background: i === carouselIdx ? "var(--step-highlight)" : "var(--step-fg-faint)",
                 }}
               />
             </button>
@@ -1116,11 +1203,11 @@ function PathScreen({
         </div>
 
         <div className="animate-fade-in mx-auto mt-[26px] max-w-[420px] text-center">
-          <div className="text-2xl text-[oklch(0.99_0.01_85)]">{active.name}</div>
-          <div className="mt-1 font-mono text-[11px] tracking-[0.06em] text-gold">
+          <div className="text-2xl text-[var(--step-fg)]">{active.name}</div>
+          <div className="mt-1 font-mono text-[11px] tracking-[0.06em] text-[var(--step-label)]">
             {active.tagline}
           </div>
-          <p className="mt-3.5 text-sm leading-relaxed text-[oklch(0.95_0.02_85_/_0.88)]">
+          <p className="mt-3.5 text-sm leading-relaxed text-[var(--step-fg-soft)]">
             {active.description}
           </p>
           <button
@@ -1128,23 +1215,23 @@ function PathScreen({
             aria-pressed={activeChosen}
             className="mt-[18px] inline-flex items-center gap-2 rounded-full border-2 px-[26px] py-3.5 text-sm font-bold transition-transform hover:scale-105 active:scale-[0.93]"
             style={{
-              borderColor: activeChosen ? "var(--color-gold)" : "oklch(0.95 0.02 85 / 0.6)",
+              borderColor: activeChosen ? "var(--color-gold)" : "var(--step-fg-soft)",
               background: activeChosen ? "var(--color-gold)" : "transparent",
-              color: activeChosen ? "var(--color-ink)" : "oklch(0.99 0.01 85)",
+              color: activeChosen ? "var(--color-ink)" : "var(--step-fg)",
             }}
           >
             {activeChosen ? `✓ ${active.name} chosen` : `Choose ${active.name}`}
           </button>
-          <div className="mx-auto mt-[22px] flex flex-col gap-2.5 border-t border-[oklch(0.95_0.02_85_/_0.15)] pt-4">
+          <div className="mx-auto mt-[22px] flex flex-col gap-2.5 border-t border-[var(--step-fg-faint)] pt-4">
             <div className="flex justify-between text-xs">
-              <span className="text-[oklch(0.95_0.02_85_/_0.75)]">Visa Path</span>
-              <span className="font-bold text-[oklch(0.99_0.01_85)]">{active.name}</span>
+              <span className="text-[var(--step-fg-soft)]">Visa Path</span>
+              <span className="font-bold text-[var(--step-fg)]">{active.name}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-[oklch(0.95_0.02_85_/_0.75)]">Status</span>
+              <span className="text-[var(--step-fg-soft)]">Status</span>
               <span
                 className="font-bold"
-                style={{ color: activeChosen ? "var(--color-gold)" : "oklch(0.95 0.02 85 / 0.8)" }}
+                style={{ color: activeChosen ? "var(--color-gold)" : "var(--step-fg-soft)" }}
               >
                 {activeChosen ? "✓ Chosen" : "Not selected yet"}
               </span>
@@ -1546,9 +1633,9 @@ function ResultScreen({
 
 /* ------------------------- 5. Journey ------------------------- */
 
-function JourneyScreen({ form }: { form: FormState }) {
+function JourneyScreen({ form, xp }: { form: FormState; xp: number }) {
   const hasGolden = !!form.goldenTicket.trim();
-  const xp = 400;
+  // Stage names and notes are draft copy.
   const stages = [
     { title: "Ceremony-In", note: "You arrived with a story.", state: "done" as const },
     {
@@ -1577,6 +1664,8 @@ function JourneyScreen({ form }: { form: FormState }) {
       state: "locked" as const,
     },
   ];
+  const openCount = stages.filter((s) => s.state !== "locked").length;
+  const waitingCount = stages.length - openCount;
   const confetti = [
     { icon: "/design/badge-star.png", left: "6%", w: 20, dur: "1.9s", delay: "0s" },
     { icon: "/design/badge-tick.png", left: "22%", w: 16, dur: "2.2s", delay: "0.15s" },
@@ -1588,26 +1677,24 @@ function JourneyScreen({ form }: { form: FormState }) {
 
   return (
     <div>
-      <div className="mx-auto flex max-w-xl items-end justify-between gap-5">
-        <div>
-          <div className="font-mono text-[11px] tracking-[0.16em] text-gold uppercase">
-            River Run
-          </div>
-          <h2 className="mt-2 text-[32px] leading-[1.02] text-[oklch(0.99_0.01_85)]">
-            Your next steps down the river.
-          </h2>
-          <p className="mt-2 text-sm text-[oklch(0.95_0.02_85_/_0.88)]">
-            A gamified mentoring pathway. Move at the pace of trust.
-          </p>
-          <p className="mt-1.5 font-mono text-[11px] tracking-[0.08em] text-gold uppercase">
-            You've earned {xp} XP getting here.
-          </p>
-        </div>
+      <div className="ceremony-card relative mx-auto max-w-xl p-7 sm:p-10">
         <img
           src="/design/passport.png"
           alt=""
-          className="w-[84px] shrink-0 rotate-6 drop-shadow-[0_12px_20px_oklch(0.1_0.05_300_/_0.5)]"
+          className="absolute -top-6 right-6 w-[72px] rotate-6 drop-shadow-[0_12px_20px_oklch(0.1_0.05_300_/_0.4)]"
         />
+        <div className="inline-flex rounded-full border-[1.5px] border-ink/70 px-3.5 py-1 font-mono text-[10px] tracking-[0.14em] text-ink/80 uppercase">
+          Unlocked
+        </div>
+        <h2 className="mt-4 text-[38px] leading-[1.02] text-ink">Your river is open.</h2>
+        <p className="mt-3 max-w-md font-mono text-[13px] leading-relaxed text-ink/80">
+          Eight levels in. Here is what opened up, and what is still waiting further down the river.
+        </p>
+        <ul className="mt-5 flex list-none flex-wrap gap-2 p-0" aria-label="Your River Run so far">
+          <JourneyChip>+{xp} XP earned</JourneyChip>
+          <JourneyChip>{openCount} stages open</JourneyChip>
+          <JourneyChip>{waitingCount} still waiting</JourneyChip>
+        </ul>
       </div>
 
       <div aria-hidden="true" className="relative mx-auto h-0 max-w-xl overflow-visible">
@@ -1626,83 +1713,58 @@ function JourneyScreen({ form }: { form: FormState }) {
         ))}
       </div>
 
-      <ol
-        aria-label="River Run stages"
-        className="mx-auto mt-7 grid max-w-xl list-none gap-3.5 p-0"
-      >
+      <div className="mx-auto mt-8 max-w-xl font-mono text-[11px] tracking-[0.16em] text-[var(--step-label)] uppercase">
+        Your next steps down the river
+      </div>
+      <ol aria-label="River Run stages" className="mx-auto mt-3 grid max-w-xl list-none gap-3 p-0">
         {stages.map((s) => {
           const done = s.state === "done";
           const unlocked = s.state === "unlocked";
           return (
-            <li key={s.title} className="flex items-start gap-3.5">
-              <div
-                aria-hidden="true"
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-ink text-base text-ink"
-                style={{
-                  background: done
-                    ? "var(--color-primary)"
-                    : unlocked
-                      ? "var(--color-gold)"
-                      : "oklch(0.9 0.01 85)",
-                }}
-              >
-                {done && (
-                  <img
-                    src="/design/badge-tick.png"
-                    alt=""
-                    className="h-[22px] w-[22px] object-contain"
-                  />
-                )}
-                {unlocked && (
-                  <img
-                    src="/design/badge-star.png"
-                    alt=""
-                    className="h-[22px] w-[22px] object-contain"
-                  />
-                )}
-                {!done && !unlocked && <Lock className="h-4 w-4" />}
+            <li
+              key={s.title}
+              className="rounded-[20px] bg-cream p-5 transition-transform hover:translate-x-[3px]"
+              style={{ opacity: done || unlocked ? 1 : 0.72 }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="text-[19px] leading-tight font-normal text-ink">{s.title}</h3>
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1 font-mono text-[10px] font-bold tracking-[0.1em] uppercase"
+                  style={{
+                    background: done
+                      ? "var(--color-ink)"
+                      : unlocked
+                        ? "#2D712A"
+                        : "oklch(0.16 0.02 280 / 0.1)",
+                    color: done || unlocked ? "var(--color-cream)" : "oklch(0.16 0.02 280 / 0.65)",
+                  }}
+                >
+                  {!done && !unlocked && <Lock className="h-3 w-3" aria-hidden="true" />}
+                  {done ? "Completed" : unlocked ? "Unlocked" : "Locked"}
+                </span>
               </div>
-              <div
-                className="flex-1 rounded-[20px] p-[18px] transition-transform hover:translate-x-[3px] sm:p-5"
-                style={{
-                  background: done
-                    ? "var(--color-primary-soft)"
-                    : unlocked
-                      ? "var(--color-cream)"
-                      : "oklch(0.97 0.03 85 / 0.55)",
-                }}
-              >
-                <div className="flex items-center justify-between gap-2.5">
-                  <h3 className="text-[17px] font-normal text-ink">{s.title}</h3>
-                  <span
-                    className="rounded-full px-3 py-1 text-[10px] font-bold"
-                    style={{
-                      background: done
-                        ? "var(--color-primary)"
-                        : unlocked
-                          ? "var(--color-gold)"
-                          : "oklch(0.85 0.01 85)",
-                      color: done ? "var(--color-cream)" : "var(--color-ink)",
-                    }}
-                  >
-                    {done ? "Completed" : unlocked ? "Unlocked" : "Locked"}
-                  </span>
-                </div>
-                <p className="mt-1 text-[13px] text-ink/75">{s.note}</p>
-                {unlocked && (
-                  <button
-                    aria-label={`Begin the ${s.title} stage`}
-                    className="mt-2.5 rounded-full bg-gold px-4.5 py-2.5 text-xs font-bold text-ink transition-transform hover:scale-105 active:scale-95"
-                  >
-                    Begin this stage →
-                  </button>
-                )}
-              </div>
+              <p className="mt-1 text-[13px] text-ink/75">{s.note}</p>
+              {unlocked && (
+                <button
+                  aria-label={`Begin the ${s.title} stage`}
+                  className="mt-3 rounded-full bg-ink px-4 py-2 font-mono text-[11px] font-bold tracking-[0.12em] text-cream uppercase transition-transform hover:scale-105 active:scale-95"
+                >
+                  Begin this stage →
+                </button>
+              )}
             </li>
           );
         })}
       </ol>
     </div>
+  );
+}
+
+function JourneyChip({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="rounded-full border-[1.5px] border-ink/60 px-3 py-1.5 font-mono text-[11px] text-ink">
+      {children}
+    </li>
   );
 }
 
@@ -1767,78 +1829,5 @@ function Detail({ k, v }: { k: string; v: string }) {
       <dt className="text-[9px] tracking-wider text-ink/62 uppercase">{k}</dt>
       <dd className="mt-0.5 text-ink">{v || "not shared"}</dd>
     </div>
-  );
-}
-
-function NavBar({
-  canAdvance,
-  onBack,
-  onNext,
-  isLast,
-  step,
-  evaluating,
-  blockedReason,
-}: {
-  canAdvance: boolean;
-  onBack: () => void;
-  onNext: () => void;
-  isLast: boolean;
-  step: StepKey;
-  evaluating?: boolean;
-  blockedReason?: string;
-}) {
-  const nextLabel = evaluating
-    ? "Reading your words..."
-    : step === "story"
-      ? "See your Ceremony"
-      : isLast
-        ? "Done"
-        : "Continue";
-  return (
-    <nav
-      aria-label="Ceremony steps"
-      // mt-28 (not the old mt-9) is deliberate: a `sticky bottom-4` nav stays
-      // pinned to the viewport bottom for the whole scroll of a tall screen
-      // (story, with 4 beings; result), so whatever content sits in that
-      // covered strip is hidden until the container's true end is reached.
-      // This margin reserves blank space above the nav at least as tall as
-      // its own rendered footprint, so the last real field always scrolls
-      // clear before the nav could ever cover it.
-      className="animate-fade-in sticky bottom-4 mt-28 flex items-center justify-between gap-2.5 rounded-full border-[1.5px] border-ink/15 bg-cream p-2"
-    >
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-secondary transition hover:bg-primary-soft"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back
-      </button>
-      {blockedReason && (
-        <span
-          id="next-blocked-reason"
-          role="status"
-          className="flex-1 text-right text-xs font-semibold text-secondary"
-        >
-          {blockedReason}
-        </span>
-      )}
-      {!isLast ? (
-        <button
-          onClick={() => canAdvance && onNext()}
-          aria-disabled={!canAdvance}
-          aria-describedby={blockedReason ? "next-blocked-reason" : undefined}
-          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-[26px] py-3.5 text-sm font-bold text-primary-foreground transition-transform hover:scale-105 active:scale-90"
-          style={{ opacity: canAdvance ? 1 : 0.4, cursor: canAdvance ? "pointer" : "not-allowed" }}
-        >
-          {evaluating && <Loader2 className="h-4 w-4 animate-spin" />}
-          {nextLabel}
-          {!evaluating && <ChevronRight className="h-4 w-4" />}
-        </button>
-      ) : (
-        <span className="rounded-full bg-primary-soft px-5 py-2.5 text-sm font-semibold text-secondary">
-          Welcome to the river.
-        </span>
-      )}
-    </nav>
   );
 }

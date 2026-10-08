@@ -36,9 +36,11 @@
   --color-gold: var(--gold);
   --color-success: var(--success);
 
+  /* Design type: Anton stands in for ABC Gravity Compressed and Space Grotesk
+     for Mabry Pro (both licensed); IBM Plex Mono is the real label face. */
   --font-display: "Anton", sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
 
   --shadow-warm: 4px 4px 0 var(--ink);
   --shadow-gold: 0 0 0 1px color-mix(in oklab, var(--gold) 40%, transparent), 0 12px 40px -12px color-mix(in oklab, var(--gold) 55%, transparent);
@@ -134,6 +136,16 @@
   &:hover { transform: translate(-2px, -2px) scale(1.03); box-shadow: 6px 6px 0 var(--ink); }
   &:active { transform: translate(0, 0) scale(0.92); box-shadow: 2px 2px 0 var(--ink); }
 }
+
+/* Step background colour. Registered as a real <color> so the variable itself
+   animates: the page background and anything else painted with it (the form
+   navigation) fade together, even a component that mounts mid-fade. */
+@property --step-bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #47289f;
+}
+.step-theme { transition: --step-bg 0.7s ease-out; }
 
 /* Step / page transitions */
 @keyframes step-forward {
@@ -250,4 +262,5 @@
   .cer-toast {
     animation: none;
   }
+  .step-theme { transition: none; }
 }
