@@ -17,8 +17,9 @@ import { AgreementsScreen } from "@/components/AgreementsScreen";
 import { SplashScreen } from "@/components/SplashScreen";
 import { XpToast } from "@/components/XpToast";
 import { FormNav } from "@/components/FormNav";
+import { SaveNote } from "@/components/SaveNote";
 import { DEFAULT_QUIZ_ANSWERS } from "@/lib/quiz.data";
-import { XP_PER_QUIZ_PAGE } from "@/lib/quiz.pages";
+import { QUIZ_PAGES, XP_PER_QUIZ_PAGE } from "@/lib/quiz.pages";
 import { ChevronDown, Loader2, Lock, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -235,10 +236,34 @@ type FormState = {
   agreementsAccepted: Record<string, boolean>;
 };
 
+function createBlankForm(): FormState {
+  return {
+    goldenTicket: "",
+    path: null,
+    firstName: "",
+    lastName: "",
+    email: "",
+    motherTongue: "",
+    city: "",
+    country: "",
+    story: "",
+    beings: [
+      { name: "", note: "" },
+      { name: "", note: "" },
+      { name: "", note: "" },
+      { name: "", note: "" },
+    ],
+    quizAnswers: DEFAULT_QUIZ_ANSWERS,
+    agreementsAccepted: {},
+  };
+}
+
 // Local-only progress save so an applicant who closes the tab or refreshes
 // mid-ceremony doesn't lose 5-10 minutes of answers. Kept in localStorage
 // (not cookies): it never leaves the browser, has plenty of room for 61 quiz
 // answers, and survives a closed tab rather than just a closed session.
+// Nothing saved here is ever sent to Airtable: the server only hears about an
+// applicant when their ceremony ends (see storeSubmission).
 const PROGRESS_STORAGE_KEY = "aime-ceremony-in:progress";
 const PROGRESS_STORAGE_VERSION = 1;
 
@@ -252,6 +277,13 @@ type SavedProgress = {
   quizPagesDone?: number;
 };
 
+/** The final step. Reaching River Run means the ceremony has been submitted. */
+const JOURNEY_IDX = STEPS.findIndex((s) => s.key === "journey");
+
+/** A saved page number, kept inside [0, max] even if the stored value is stale or corrupt. */
+const toIndex = (v: unknown, max: number) =>
+  Math.min(Math.max(typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : 0, 0), max);
+
 function loadSavedProgress(): SavedProgress | null {
   try {
     const raw = localStorage.getItem(PROGRESS_STORAGE_KEY);
@@ -262,11 +294,38 @@ function loadSavedProgress(): SavedProgress | null {
     if (
       parsed.version !== PROGRESS_STORAGE_VERSION ||
       !parsed.form ||
-      typeof parsed.stepIdx !== "number"
+      typeof parsed.stepIdx !== "number" ||
+      !Number.isInteger(parsed.stepIdx)
     ) {
       return null;
     }
-    return parsed as SavedProgress;
+    // A save sitting on River Run belongs to a ceremony that was already
+    // submitted (older builds saved again after finishing). Offering it as
+    // something to continue would let the applicant submit a second time.
+    if (parsed.stepIdx >= JOURNEY_IDX) {
+      clearSavedProgress();
+      return null;
+    }
+    if (parsed.stepIdx < 1) return null;
+
+    // Fill in anything a save from an older build lacks, so a field added to
+    // the form later never arrives undefined.
+    const blank = createBlankForm();
+    const saved = parsed.form;
+    return {
+      version: PROGRESS_STORAGE_VERSION,
+      stepIdx: parsed.stepIdx,
+      form: {
+        ...blank,
+        ...saved,
+        beings: blank.beings.map((b, i) => ({ ...b, ...saved.beings?.[i] })) as FormState["beings"],
+        quizAnswers: { ...blank.quizAnswers, ...saved.quizAnswers },
+        agreementsAccepted: { ...saved.agreementsAccepted },
+      },
+      evaluation: parsed.evaluation ?? null,
+      quizPage: toIndex(parsed.quizPage, QUIZ_PAGES.length - 1),
+      quizPagesDone: toIndex(parsed.quizPagesDone, QUIZ_PAGES.length),
+    };
   } catch {
     return null;
   }
@@ -298,32 +357,20 @@ function CeremonyIn() {
   // Lazy initializer: the object literal below (including the beings array)
   // is only ever constructed once, on mount, instead of being rebuilt and
   // discarded on every re-render.
-  const [form, setForm] = useState<FormState>(() => ({
-    goldenTicket: "",
-    path: null,
-    firstName: "",
-    lastName: "",
-    email: "",
-    motherTongue: "",
-    city: "",
-    country: "",
-    story: "",
-    beings: [
-      { name: "", note: "" },
-      { name: "", note: "" },
-      { name: "", note: "" },
-      { name: "", note: "" },
-    ],
-    quizAnswers: DEFAULT_QUIZ_ANSWERS,
-    agreementsAccepted: {},
-  }));
+  const [form, setForm] = useState<FormState>(createBlankForm);
 
-  // Read once on mount. The applicant stays on the Welcome screen either way —
+  // Whether an earlier visit left progress on this device. Read in an effect
+  // rather than during render: the server cannot see localStorage, so a render
+  // that read it would not match the server-rendered page and React would warn
+  // about hydration. The applicant stays on the Welcome screen either way;
   // resuming happens only if they choose to, via the prompt rendered there.
-  const [savedProgress] = useState<SavedProgress | null>(() =>
-    typeof window === "undefined" ? null : loadSavedProgress(),
-  );
+  const [savedProgress, setSavedProgress] = useState<SavedProgress | null>(null);
+  const [progressChecked, setProgressChecked] = useState(false);
   const [resumeDecided, setResumeDecided] = useState(false);
+  useEffect(() => {
+    setSavedProgress(loadSavedProgress());
+    setProgressChecked(true);
+  }, []);
 
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [evaluating, setEvaluating] = useState(false);
@@ -340,9 +387,16 @@ function CeremonyIn() {
   const [ticketError, setTicketError] = useState<string | null>(null);
   const verifiedTicketKey = useRef("");
 
-  // Guards against storing the same applicant twice if they navigate back and
-  // forward through the end of the flow.
-  const submittedRef = useRef(false);
+  // What has been sent to Airtable so far. Each kind is stored at most once,
+  // so navigating back and forward through the end of the flow never stores the
+  // same applicant twice. "blocked" is an applicant stopped at the verdict;
+  // "complete" is a finished ceremony and is final.
+  const storedRef = useRef<"none" | "blocked" | "complete">("none");
+  const [submitBusy, setSubmitBusy] = useState(false);
+  // Sticky until a write succeeds, so River Run can offer a retry.
+  const [submitFailed, setSubmitFailed] = useState(false);
+  // True once Airtable has the finished ceremony. From then on nothing is saved locally.
+  const [ceremonyStored, setCeremonyStored] = useState(false);
 
   const runFetchVisaPaths = useServerFn(fetchVisaPaths);
   const { data: cmsVisaPaths } = useQuery({
@@ -437,8 +491,12 @@ function CeremonyIn() {
   // Nothing worth saving at the Welcome screen itself (a blank form), and
   // skipping it here also means we never overwrite a saved session with a
   // fresh blank one before the applicant has chosen to resume or start over.
+  // The same holds until we have actually looked for an earlier save. River Run
+  // is never saved either: a finished ceremony must not come back as something
+  // to continue.
   useEffect(() => {
-    if (stepIdx === 0) return;
+    if (!progressChecked || (savedProgress && !resumeDecided)) return;
+    if (stepIdx === 0 || step === "journey" || ceremonyStored) return;
     try {
       const payload: SavedProgress = {
         version: PROGRESS_STORAGE_VERSION,
@@ -452,7 +510,18 @@ function CeremonyIn() {
     } catch {
       // Storage full or unavailable — progress just won't resume, not fatal.
     }
-  }, [form, stepIdx, evaluation, quizPage, quizPagesDone]);
+  }, [
+    progressChecked,
+    savedProgress,
+    resumeDecided,
+    ceremonyStored,
+    step,
+    form,
+    stepIdx,
+    evaluation,
+    quizPage,
+    quizPagesDone,
+  ]);
 
   const resumeProgress = () => {
     if (!savedProgress) return;
@@ -470,24 +539,34 @@ function CeremonyIn() {
     setResumeDecided(true);
   };
 
-  // Stores the applicant exactly once, at whichever point their journey ends:
-  // straight after a blocking verdict, or after Agreements (the last step
-  // before River Run) for everyone who gets that far.
+  // Stores the applicant at whichever point their journey ends: straight after
+  // a blocking verdict ("blocked"), or after Agreements, the last step before
+  // River Run, for everyone who gets that far ("complete"). Anything short of
+  // that stays in this browser (see the progress save above) and is never sent.
   //
   // Deliberately never blocks navigation. The applicant has finished the
   // ceremony either way, and a storage outage should not strand them on the
-  // last screen.
+  // last screen. It does report whether the write went through, so the caller
+  // can keep the local save and offer a retry rather than discard the only
+  // copy of a submission Airtable never received.
+  //
+  // A blocked applicant who revises their reflection and gets through is stored
+  // again when they finish: the earlier record is the blocked attempt, not the
+  // completed ceremony.
   //
   // Agreements are only sent once the applicant has been through that step,
   // as the version they were shown (revision id) plus the statements they
   // ticked; the server verifies both against the live CMS.
   const storeSubmission = async (
+    kind: "blocked" | "complete",
     result: EvaluationResult | null,
     quizAnswers?: Record<string, number>,
     includeAgreements = false,
-  ) => {
-    if (submittedRef.current) return;
-    submittedRef.current = true;
+  ): Promise<boolean> => {
+    if (storedRef.current === "complete" || storedRef.current === kind) return true;
+    const previous = storedRef.current;
+    storedRef.current = kind;
+    setSubmitBusy(true);
 
     try {
       await runSubmit({
@@ -517,10 +596,27 @@ function CeremonyIn() {
           ...(result ? { evaluation: result } : {}),
         },
       });
+      setSubmitFailed(false);
+      return true;
     } catch (e) {
       // Allow a later attempt rather than losing the applicant entirely.
-      submittedRef.current = false;
+      storedRef.current = previous;
+      setSubmitFailed(true);
       console.error("Could not store the ceremony submission.", e);
+      return false;
+    } finally {
+      setSubmitBusy(false);
+    }
+  };
+
+  // Finishing the ceremony. The saved progress is dropped only once Airtable
+  // has the submission; if the write fails it stays, so the applicant can retry
+  // from River Run or come back later and continue from Agreements.
+  const completeCeremony = async () => {
+    const stored = await storeSubmission("complete", evaluation, form.quizAnswers, true);
+    if (stored) {
+      setCeremonyStored(true);
+      clearSavedProgress();
     }
   };
 
@@ -537,8 +633,7 @@ function CeremonyIn() {
   const next = async () => {
     setDirection("forward");
     if (step === "agreements") {
-      void storeSubmission(evaluation, form.quizAnswers, true);
-      clearSavedProgress();
+      void completeCeremony();
       setStepIdx((i) => Math.min(i + 1, STEPS.length - 1));
       popXpToast();
       return;
@@ -595,7 +690,7 @@ function CeremonyIn() {
         // A blocked applicant never reaches the quiz, so this is the only
         // chance to record them.
         if (!result.canProceed) {
-          void storeSubmission(result);
+          void storeSubmission("blocked", result);
         }
         goTo("result");
         popXpToast();
@@ -689,6 +784,9 @@ function CeremonyIn() {
                 setGolden={(v) => setField("goldenTicket", v)}
                 onBegin={next}
                 resumeAvailable={Boolean(savedProgress) && !resumeDecided}
+                resumeStepLabel={savedProgress ? STEPS[savedProgress.stepIdx].label : ""}
+                resumeLevel={savedProgress ? savedProgress.stepIdx + 1 : 0}
+                totalLevels={STEPS.length}
                 onResume={resumeProgress}
                 onDiscard={discardProgress}
               />
@@ -749,7 +847,15 @@ function CeremonyIn() {
                 onFinish={next}
               />
             )}
-            {step === "journey" && <JourneyScreen form={form} xp={xp} />}
+            {step === "journey" && (
+              <JourneyScreen
+                form={form}
+                xp={xp}
+                submitFailed={submitFailed}
+                submitBusy={submitBusy}
+                onRetry={completeCeremony}
+              />
+            )}
           </div>
         </section>
 
@@ -927,6 +1033,9 @@ function WelcomeScreen({
   setGolden,
   onBegin,
   resumeAvailable,
+  resumeStepLabel,
+  resumeLevel,
+  totalLevels,
   onResume,
   onDiscard,
 }: {
@@ -934,10 +1043,15 @@ function WelcomeScreen({
   setGolden: (v: string) => void;
   onBegin: () => void;
   resumeAvailable: boolean;
+  resumeStepLabel: string;
+  resumeLevel: number;
+  totalLevels: number;
   onResume: () => void;
   onDiscard: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Starting fresh throws away saved answers, so it asks once before doing it.
+  const [confirmingFresh, setConfirmingFresh] = useState(false);
   return (
     <div className="ceremony-card mx-auto max-w-xl p-8 sm:p-11">
       <div className="inline-flex items-center gap-2 rounded-full border-[1.5px] border-ink px-3.5 py-1.5 font-mono text-[10px] tracking-[0.1em] text-ink uppercase">
@@ -951,75 +1065,116 @@ function WelcomeScreen({
         a path chosen with care. No forms that feel like forms.
       </p>
 
-      {resumeAvailable && (
-        <div className="animate-fade-in mt-6 flex flex-col gap-3 rounded-2xl border-[1.5px] border-ink/20 bg-primary-soft p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-sm font-semibold text-ink">Welcome back.</div>
-            <p className="mt-0.5 text-[13px] text-ink/70">
-              You have a Ceremony-In in progress on this device. Continue where you left off, or
-              start fresh.
-            </p>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <button
-              onClick={onResume}
-              className="inline-flex items-center justify-center rounded-full bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
-            >
-              Continue
-            </button>
-            <button
-              onClick={onDiscard}
-              className="inline-flex items-center justify-center rounded-full border-[1.5px] border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-white"
-            >
-              Start fresh
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="mt-8 flex flex-wrap items-center gap-3">
-        <button
-          onClick={onBegin}
-          className="cer-cta inline-flex items-center gap-2 rounded-full bg-primary px-[30px] py-4 text-[15px] font-bold text-primary-foreground"
-        >
-          Begin Ceremony-In →
-        </button>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          aria-controls="golden-ticket-panel"
-          className="inline-flex items-center gap-2 rounded-full border-[1.5px] border-ink px-[22px] py-3.5 text-sm font-semibold text-ink transition hover:bg-primary-soft"
-        >
-          <span aria-hidden="true">🎫</span> I have a Golden Ticket
-          <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
-        </button>
-      </div>
-
-      {open && (
+      {resumeAvailable ? (
+        // Saved progress was found. Continuing is the main action and "Begin"
+        // is withheld: starting over has to be a deliberate choice, never an
+        // accidental click that replaces what the applicant already wrote.
         <div
-          id="golden-ticket-panel"
-          className="animate-fade-in mt-5 rounded-2xl border-[1.5px] border-gold bg-cream p-5"
+          role="group"
+          aria-labelledby="resume-heading"
+          className="animate-fade-in mt-7 rounded-2xl border-[1.5px] border-ink/20 bg-primary-soft p-5"
         >
-          <label className="block">
-            <span className="block font-mono text-[10px] tracking-[0.12em] text-secondary uppercase">
-              Golden Ticket number
-            </span>
-            <input
-              value={golden}
-              onChange={(e) => setGolden(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder="e.g. 428"
-              aria-describedby="golden-ticket-help"
-              className="mt-2 w-full rounded-xl border-[1.5px] border-ink/25 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/25"
-            />
-          </label>
-          <p id="golden-ticket-help" className="mt-2 text-xs text-ink/70">
-            Optional. Enter the number on your ticket. We check it against the first and last name
-            you give next. A Golden Ticket unlocks mentor invitations and early stages on the River
-            Run.
+          <h2 id="resume-heading" className="font-display text-[22px] leading-tight text-ink">
+            Welcome back.
+          </h2>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink/75">
+            Your Ceremony-In is saved on this device. You left off at{" "}
+            <strong className="font-semibold text-ink">{resumeStepLabel}</strong> (level{" "}
+            {resumeLevel} of {totalLevels}).
           </p>
+          <div className="mt-4" aria-live="polite">
+            {confirmingFresh ? (
+              <>
+                <p className="text-[13px] font-semibold text-ink">
+                  Start fresh? This clears your saved answers on this device and can't be undone.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onDiscard}
+                    className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-bold text-cream transition-transform hover:scale-105 active:scale-95"
+                  >
+                    Yes, start fresh
+                  </button>
+                  <button
+                    type="button"
+                    autoFocus
+                    onClick={() => setConfirmingFresh(false)}
+                    className="inline-flex items-center rounded-full border-[1.5px] border-ink px-5 py-2.5 text-sm font-semibold text-ink transition hover:bg-white"
+                  >
+                    Keep my progress
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onResume}
+                  className="cer-cta inline-flex items-center gap-2 rounded-full bg-primary px-[30px] py-4 text-[15px] font-bold text-primary-foreground"
+                >
+                  Continue where you left off →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingFresh(true)}
+                  className="inline-flex items-center rounded-full border-[1.5px] border-ink px-[22px] py-3.5 text-sm font-semibold text-ink transition hover:bg-white"
+                >
+                  Start fresh
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+      ) : (
+        <>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <button
+              onClick={onBegin}
+              className="cer-cta inline-flex items-center gap-2 rounded-full bg-primary px-[30px] py-4 text-[15px] font-bold text-primary-foreground"
+            >
+              Begin Ceremony-In →
+            </button>
+            <button
+              onClick={() => setOpen((o) => !o)}
+              aria-expanded={open}
+              aria-controls="golden-ticket-panel"
+              className="inline-flex items-center gap-2 rounded-full border-[1.5px] border-ink px-[22px] py-3.5 text-sm font-semibold text-ink transition hover:bg-primary-soft"
+            >
+              <span aria-hidden="true">🎫</span> I have a Golden Ticket
+              <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+            </button>
+          </div>
+
+          {open && (
+            <div
+              id="golden-ticket-panel"
+              className="animate-fade-in mt-5 rounded-2xl border-[1.5px] border-gold bg-cream p-5"
+            >
+              <label className="block">
+                <span className="block font-mono text-[10px] tracking-[0.12em] text-secondary uppercase">
+                  Golden Ticket number
+                </span>
+                <input
+                  value={golden}
+                  onChange={(e) => setGolden(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="e.g. 428"
+                  aria-describedby="golden-ticket-help"
+                  className="mt-2 w-full rounded-xl border-[1.5px] border-ink/25 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/25"
+                />
+              </label>
+              <p id="golden-ticket-help" className="mt-2 text-xs text-ink/70">
+                Optional. Enter the number on your ticket. We check it against the first and last
+                name you give next. A Golden Ticket unlocks mentor invitations and early stages on
+                the River Run.
+              </p>
+            </div>
+          )}
+
+          <SaveNote className="mt-6 text-ink/70" />
+        </>
       )}
 
       <div className="mt-9 flex flex-wrap gap-2.5">
@@ -1633,7 +1788,20 @@ function ResultScreen({
 
 /* ------------------------- 5. Journey ------------------------- */
 
-function JourneyScreen({ form, xp }: { form: FormState; xp: number }) {
+function JourneyScreen({
+  form,
+  xp,
+  submitFailed,
+  submitBusy,
+  onRetry,
+}: {
+  form: FormState;
+  xp: number;
+  /** True while Airtable has not received the finished ceremony. */
+  submitFailed: boolean;
+  submitBusy: boolean;
+  onRetry: () => Promise<void>;
+}) {
   const hasGolden = !!form.goldenTicket.trim();
   // Stage names and notes are draft copy.
   const stages = [
@@ -1677,6 +1845,29 @@ function JourneyScreen({ form, xp }: { form: FormState; xp: number }) {
 
   return (
     <div>
+      {submitFailed && (
+        <div
+          role="alert"
+          className="mx-auto mb-5 max-w-xl rounded-2xl border-[1.5px] border-gold bg-cream p-5"
+        >
+          <div className="text-sm font-semibold text-ink">
+            We couldn't send your ceremony just now.
+          </div>
+          <p className="mt-1 text-[13px] leading-relaxed text-ink/75">
+            Your answers are still saved on this device, so nothing is lost. Please try again. If it
+            keeps failing, come back later and continue from the Welcome screen.
+          </p>
+          <button
+            type="button"
+            onClick={() => void onRetry()}
+            disabled={submitBusy}
+            className="mt-3 inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2 font-mono text-[11px] font-bold tracking-[0.12em] text-cream uppercase transition-transform hover:scale-105 active:scale-95 disabled:opacity-60"
+          >
+            {submitBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+            Try again
+          </button>
+        </div>
+      )}
       <div className="ceremony-card relative mx-auto max-w-xl p-7 sm:p-10">
         <img
           src="/design/passport.png"

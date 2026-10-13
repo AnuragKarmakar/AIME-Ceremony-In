@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
 import { FormNav } from "@/components/FormNav";
+import { SaveNote } from "@/components/SaveNote";
 import type { QuizScale } from "@/lib/quiz.data";
 import { QUIZ_PAGES, QUIZ_THEMES, THEME_LAST_PAGE, XP_PER_QUIZ_PAGE } from "@/lib/quiz.pages";
 
@@ -13,9 +14,6 @@ const THEME_BADGES = [
   "/design/badge-hoodie.png",
   "/design/badge-star.png",
 ];
-
-/** The "want the rest by email?" card appears after this many themes. */
-const EMAIL_OFFER_AFTER_THEMES = 2;
 
 export function QuizScreen({
   answers,
@@ -165,6 +163,7 @@ export function QuizScreen({
         </div>
 
         <QuizProgressDots current={safeIdx} />
+        <SaveNote className="mt-5 text-ink/65" />
       </div>
 
       <FormNav
@@ -192,7 +191,6 @@ function ThemeReward({
   const theme = QUIZ_THEMES[themeIdx];
   const next = QUIZ_THEMES[themeIdx + 1];
   const themePages = QUIZ_PAGES.filter((p) => p.themeIdx === themeIdx).length;
-  const [emailAsked, setEmailAsked] = useState(false);
 
   return (
     <div className="animate-fade-in mx-auto max-w-xl text-center">
@@ -228,40 +226,7 @@ function ThemeReward({
         <XpTile label="Answered" value={`${answered}/${TOTAL_QUESTIONS}`} />
       </ul>
 
-      {themeIdx + 1 === EMAIL_OFFER_AFTER_THEMES && (
-        <div className="mt-8 rounded-[28px] bg-[#0404AC] p-7 text-left text-[oklch(0.99_0.01_85)] sm:p-8">
-          <h3 className="text-[24px] leading-tight">Want the rest by email?</h3>
-          <p className="mt-3 font-mono text-[13px] leading-relaxed">
-            You are two themes in and everything so far is saved.
-          </p>
-          <p className="mt-3 font-mono text-[13px] leading-relaxed">
-            We can send the last ones tomorrow, or you can keep going now.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={onContinue}
-              className="inline-flex items-center gap-2 rounded-full bg-[#7989FF] px-7 py-3 font-mono text-sm font-bold tracking-[0.12em] text-[#0404AC] uppercase transition-transform hover:scale-105 active:scale-95"
-            >
-              Continue →
-            </button>
-            <button
-              type="button"
-              onClick={() => setEmailAsked(true)}
-              aria-expanded={emailAsked}
-              className="inline-flex items-center rounded-full border-[1.5px] border-[oklch(0.99_0.01_85)] px-6 py-3 font-mono text-xs font-bold tracking-[0.12em] uppercase transition hover:bg-white/10"
-            >
-              Email the rest
-            </button>
-          </div>
-          {emailAsked && (
-            <p role="status" className="animate-fade-in mt-4 text-[13px] leading-relaxed">
-              Email reminders are coming soon. Everything so far is saved on this device, so you can
-              close this tab and pick up where you left off from the Welcome screen.
-            </p>
-          )}
-        </div>
-      )}
+      <SaveNote className="mx-auto mt-7 max-w-md justify-center text-left text-[var(--step-fg-soft)]" />
     </div>
   );
 }

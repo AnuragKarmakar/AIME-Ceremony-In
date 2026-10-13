@@ -36,7 +36,18 @@ export function AgreementsScreen({
   onBack: () => void;
   onFinish: () => void;
 }) {
-  const [pageIdx, setPageIdx] = useState(0);
+  // Starts on the first agreement that is not fully ticked, so an applicant
+  // who left part-way through (their ticks are saved) resumes where they
+  // stopped instead of re-reading the ones already done. With nothing ticked
+  // that is the first agreement; with everything ticked, the last.
+  const [pageIdx, setPageIdx] = useState(() => {
+    const firstOpen = agreements.findIndex(
+      (ag) =>
+        ag.statements.length === 0 ||
+        !ag.statements.every((s) => accepted[statementKey(ag.slug, s.id)]),
+    );
+    return firstOpen === -1 ? Math.max(agreements.length - 1, 0) : firstOpen;
+  });
   const [direction, setDirection] = useState<"forward" | "back">("forward");
   const isFirst = pageIdx === 0;
   const isLast = pageIdx === agreements.length - 1;
