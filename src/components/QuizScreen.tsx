@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import { Zap } from "lucide-react";
 import { FormNav } from "@/components/FormNav";
 import { SaveNote } from "@/components/SaveNote";
 import type { QuizScale } from "@/lib/quiz.data";
@@ -193,34 +194,38 @@ function ThemeReward({
   const themePages = QUIZ_PAGES.filter((p) => p.themeIdx === themeIdx).length;
 
   return (
-    <div className="animate-fade-in mx-auto max-w-xl text-center">
-      <div className="relative mx-auto grid h-36 w-36 place-items-center rounded-full bg-[oklch(0.3_0.12_300)] ring-[10px] ring-[oklch(0.45_0.13_300)]">
-        <img
-          src={THEME_BADGES[themeIdx % THEME_BADGES.length]}
-          alt=""
-          className="h-16 w-16 object-contain"
-        />
-        <span aria-hidden="true" className="absolute -top-2 left-2 text-lg">
-          ✦
-        </span>
-        <span aria-hidden="true" className="absolute right-0 bottom-3 text-base">
-          ✦
-        </span>
+    // data-quiz-milestone switches the page to the design's blue milestone
+    // background while this screen is up (see styles.css).
+    <div data-quiz-milestone className="animate-fade-in mx-auto max-w-xl text-center">
+      <div className="relative mx-auto grid h-[200px] w-full max-w-xs place-items-center">
+        {MILESTONE_STARS.map((s, i) => (
+          <MilestoneStar key={i} {...s} />
+        ))}
+        <div className="grid h-44 w-44 place-items-center rounded-full border-[5px] border-ink bg-[#F1D75F]">
+          <img
+            src={THEME_BADGES[themeIdx % THEME_BADGES.length]}
+            alt=""
+            className="h-20 w-20 object-contain"
+          />
+        </div>
       </div>
 
-      <div className="mt-6 font-mono text-[11px] tracking-[0.16em] text-[var(--step-label)] uppercase">
+      <div className="mt-4 font-mono text-[11px] tracking-[0.16em] text-[var(--step-label)] uppercase">
         Theme {themeIdx + 1} of {QUIZ_THEMES.length} complete
       </div>
-      <h2 className="mt-2 text-[34px] leading-[1.02] text-[var(--step-fg)]">
-        You made it through {theme.title}.
+      <h2 className="mt-2 text-[36px] leading-[1.02] text-white uppercase">
+        You made it through {theme.title}
       </h2>
       {next && (
-        <p className="mx-auto mt-2 max-w-md text-[15px] text-[var(--step-fg-soft)]">
+        <p className="mx-auto mt-3 max-w-md text-[15px] text-[var(--step-fg-soft)]">
           Next up: {next.title}. {next.blurb}
         </p>
       )}
 
-      <ul className="mt-7 grid list-none grid-cols-3 gap-3 p-0" aria-label="Your progress so far">
+      <ul
+        className="mx-auto mt-7 grid max-w-sm list-none grid-cols-3 gap-3 p-0"
+        aria-label="Your progress so far"
+      >
         <XpTile label="This theme" value={`+${themePages * XP_PER_QUIZ_PAGE}`} />
         <XpTile label="Total XP" value={String(totalXp)} />
         <XpTile label="Answered" value={`${answered}/${TOTAL_QUESTIONS}`} />
@@ -233,15 +238,55 @@ function ThemeReward({
 
 function XpTile({ label, value }: { label: string; value: string }) {
   return (
-    <li className="rounded-[18px] bg-cream p-2">
-      <div className="font-mono text-[10px] font-bold tracking-[0.1em] text-ink uppercase">
+    <li className="rounded-[12px] bg-white p-1.5">
+      <div className="py-0.5 font-mono text-[10px] font-bold tracking-[0.08em] text-ink uppercase">
         {label}
       </div>
-      <div className="mt-1.5 flex items-center justify-center gap-1 rounded-[12px] bg-ink py-3 font-mono text-lg font-bold text-cream">
-        <span aria-hidden="true">⚡</span>
+      <div className="mt-1 flex items-center justify-center gap-1.5 rounded-[9px] bg-[#161F24] py-3.5 font-mono text-lg font-bold text-white">
+        <Zap aria-hidden="true" className="h-[18px] w-[18px]" fill="currentColor" strokeWidth={0} />
         {value}
       </div>
     </li>
+  );
+}
+
+/** Stars scattered around the milestone badge, as in the design (offsets from its centre, in px). */
+const MILESTONE_STARS = [
+  { x: -109, y: -88, size: 18 },
+  { x: -94, y: -102, size: 9, white: true },
+  { x: 96, y: -96, size: 18 },
+  { x: -139, y: 66, size: 17 },
+  { x: 138, y: 52, size: 17 },
+];
+
+function MilestoneStar({
+  x,
+  y,
+  size,
+  white,
+}: {
+  x: number;
+  y: number;
+  size: number;
+  white?: boolean;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      className="absolute -translate-x-1/2 -translate-y-1/2"
+      style={{ left: `calc(50% + ${x}px)`, top: `calc(50% + ${y}px)` }}
+    >
+      <path
+        d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"
+        fill={white ? "#FFFFFF" : "#DFE576"}
+        stroke={white ? "none" : "#B9A8F2"}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
