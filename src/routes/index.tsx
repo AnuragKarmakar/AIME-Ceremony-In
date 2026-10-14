@@ -115,7 +115,7 @@ const PATHS: {
     description: "Companies redesigning around relational value, mentoring and joy.",
     mono: "JC",
     swatch: "oklch(0.70 0.14 45)",
-    banner: "/design/path-joy-corp.jpeg",
+    banner: "/design/path-joy-corp.png",
   },
   {
     id: "presidents",
@@ -124,7 +124,7 @@ const PATHS: {
     description: "Young people age 13 to 18 leading unreasonable, world changing projects.",
     mono: "IP",
     swatch: "oklch(0.82 0.14 88)",
-    banner: "/design/path-presidents.jpeg",
+    banner: "/design/path-presidents.png",
   },
   {
     id: "schools",
@@ -142,7 +142,7 @@ const PATHS: {
     description: "Citizens learning to shift the systems around them through mentoring.",
     mono: "SC",
     swatch: "oklch(0.60 0.12 230)",
-    banner: "/design/path-systems.jpeg",
+    banner: "/design/path-systems.png",
   },
   {
     id: "iksl",
@@ -151,7 +151,7 @@ const PATHS: {
     description: "Labs centering Indigenous knowledge as design for the next 100 years.",
     mono: "IK",
     swatch: "oklch(0.58 0.17 30)",
-    banner: "/design/path-iksl.jpeg",
+    banner: "/design/path-iksl.png",
   },
 ];
 
@@ -1283,7 +1283,12 @@ function PathScreen({
                   pointerEvents: abs > 2 ? "none" : "auto",
                 }}
               >
-                <img src={p.banner} alt="" className="block h-full w-full object-cover" />
+                <img
+                  src={p.banner}
+                  alt=""
+                  className="block h-full w-full object-contain px-5 pt-14 pb-24"
+                />
+
                 <div
                   className="absolute inset-0"
                   style={{
