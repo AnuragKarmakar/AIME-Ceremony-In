@@ -15,6 +15,18 @@ const THEME_BADGES = [
   "/design/badge-star.png",
 ];
 
+/**
+ * Animation played once on a theme's reward screen, keyed by the theme that
+ * was just completed. Themes without an entry fall back to the badge.
+ */
+const THEME_VIDEOS: Record<string, string> = {
+  imagination: "/design/transitions/imagine-bloom.mp4",
+  relations: "/design/transitions/pigeon-takeoff.mp4",
+  "ways-of-being": "/design/transitions/paper-crane-fold.mp4",
+  logic: "/design/transitions/puzzle-snap.mp4",
+  "indigenous-systems": "/design/transitions/australia-glow.mp4",
+};
+
 export function QuizScreen({
   answers,
   setAnswer,
@@ -73,14 +85,14 @@ export function QuizScreen({
 
   const goNext = () => {
     if (rewardTheme !== null) {
+      if (isLast) {
+        onFinish();
+        return;
+      }
       advancePage();
       return;
     }
     onPageComplete(safeIdx);
-    if (isLast) {
-      onFinish();
-      return;
-    }
     if (THEME_LAST_PAGE[page.themeIdx] === safeIdx) {
       setDirection("forward");
       setRewardTheme(page.themeIdx);
@@ -103,8 +115,8 @@ export function QuizScreen({
           onBack={goPrev}
           backLabel="Back"
           onNext={goNext}
-          nextLabel="Keep going"
-          label={`Next: ${QUIZ_THEMES[rewardTheme + 1]?.title ?? ""}`}
+          nextLabel={isLast ? "Continue" : "Keep going"}
+          label={`Next: ${QUIZ_THEMES[rewardTheme + 1]?.title ?? "Agreements"}`}
         />
       </>
     );
@@ -192,21 +204,27 @@ function ThemeReward({
   const next = QUIZ_THEMES[themeIdx + 1];
   const themePages = QUIZ_PAGES.filter((p) => p.themeIdx === themeIdx).length;
 
+  const videoSrc = THEME_VIDEOS[theme.key];
+
   return (
     <div className="animate-fade-in mx-auto max-w-xl text-center">
-      <div className="relative mx-auto grid h-36 w-36 place-items-center rounded-full bg-[oklch(0.3_0.12_300)] ring-[10px] ring-[oklch(0.45_0.13_300)]">
-        <img
-          src={THEME_BADGES[themeIdx % THEME_BADGES.length]}
-          alt=""
-          className="h-16 w-16 object-contain"
-        />
-        <span aria-hidden="true" className="absolute -top-2 left-2 text-lg">
-          ✦
-        </span>
-        <span aria-hidden="true" className="absolute right-0 bottom-3 text-base">
-          ✦
-        </span>
-      </div>
+      {videoSrc ? (
+        <TransitionVideo key={videoSrc} src={videoSrc} />
+      ) : (
+        <div className="relative mx-auto grid h-36 w-36 place-items-center rounded-full bg-[oklch(0.3_0.12_300)] ring-[10px] ring-[oklch(0.45_0.13_300)]">
+          <img
+            src={THEME_BADGES[themeIdx % THEME_BADGES.length]}
+            alt=""
+            className="h-16 w-16 object-contain"
+          />
+          <span aria-hidden="true" className="absolute -top-2 left-2 text-lg">
+            ✦
+          </span>
+          <span aria-hidden="true" className="absolute right-0 bottom-3 text-base">
+            ✦
+          </span>
+        </div>
+      )}
 
       <div className="mt-6 font-mono text-[11px] tracking-[0.16em] text-[var(--step-label)] uppercase">
         Theme {themeIdx + 1} of {QUIZ_THEMES.length} complete
@@ -214,11 +232,11 @@ function ThemeReward({
       <h2 className="mt-2 text-[34px] leading-[1.02] text-[var(--step-fg)]">
         You made it through {theme.title}.
       </h2>
-      {next && (
-        <p className="mx-auto mt-2 max-w-md text-[15px] text-[var(--step-fg-soft)]">
-          Next up: {next.title}. {next.blurb}
-        </p>
-      )}
+      <p className="mx-auto mt-2 max-w-md text-[15px] text-[var(--step-fg-soft)]">
+        {next
+          ? `Next up: ${next.title}. ${next.blurb}`
+          : "That's the whole check-in. Next up: the agreements."}
+      </p>
 
       <ul className="mt-7 grid list-none grid-cols-3 gap-3 p-0" aria-label="Your progress so far">
         <XpTile label="This theme" value={`+${themePages * XP_PER_QUIZ_PAGE}`} />
@@ -228,6 +246,30 @@ function ThemeReward({
 
       <SaveNote className="mx-auto mt-7 max-w-md justify-center text-left text-[var(--step-fg-soft)]" />
     </div>
+  );
+}
+
+// Plays once, with sound. The click on "Next" that opens this screen counts as
+// a user gesture, so unmuted autoplay is normally allowed; if the browser
+// still refuses, show the native controls so the viewer can press play.
+function TransitionVideo({ src }: { src: string }) {
+  const [blocked, setBlocked] = useState(false);
+
+  return (
+    <video
+      src={src}
+      autoPlay
+      playsInline
+      controls={blocked}
+      preload="auto"
+      aria-hidden={blocked ? undefined : true}
+      className="mx-auto block max-h-64 w-auto max-w-full rounded-[22px]"
+      ref={(el) => {
+        if (el && el.paused && !el.ended && el.currentTime === 0) {
+          el.play().catch(() => setBlocked(true));
+        }
+      }}
+    />
   );
 }
 
