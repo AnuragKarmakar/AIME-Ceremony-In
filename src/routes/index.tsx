@@ -14,20 +14,13 @@ import {
 import { LanguageCombobox } from "@/components/LanguageCombobox";
 import { QuizScreen } from "@/components/QuizScreen";
 import { AgreementsScreen } from "@/components/AgreementsScreen";
-import { AmbientBackground } from "@/components/AmbientBackground";
 import { SplashScreen } from "@/components/SplashScreen";
 import { XpToast } from "@/components/XpToast";
+import { FormNav } from "@/components/FormNav";
+import { SaveNote } from "@/components/SaveNote";
 import { DEFAULT_QUIZ_ANSWERS } from "@/lib/quiz.data";
-import {
-  ChevronDown,
-  ChevronRight,
-  ArrowLeft,
-  Lock,
-  Loader2,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
-} from "lucide-react";
+import { QUIZ_PAGES, XP_PER_QUIZ_PAGE } from "@/lib/quiz.pages";
+import { ChevronDown, Loader2, Lock, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: CeremonyIn,
@@ -60,6 +53,50 @@ const STEPS: { key: StepKey; label: string }[] = [
   { key: "journey", label: "River Run" },
 ];
 
+/**
+ * One solid background per step (the design's level swatches: solids reduce
+ * visual anxiety, unlike gradients). Steps are matched to swatches by name;
+ * "Who you are" has no swatch of its own and takes Systems. Light
+ * backgrounds switch the text on them to dark ink for contrast.
+ */
+const STEP_THEME: Record<StepKey, { bg: string; tone: "dark" | "light" }> = {
+  welcome: { bg: "#47289F", tone: "dark" }, // L1 Welcome
+  path: { bg: "#571397", tone: "dark" }, // L2 Visa Path
+  identity: { bg: "#005454", tone: "dark" }, // L6 Systems
+  story: { bg: "#0404AC", tone: "dark" }, // L3 Your Story
+  result: { bg: "#7989FF", tone: "light" }, // L8 Ceremony
+  quiz: { bg: "#CFC52C", tone: "light" }, // L4 Practice
+  agreements: { bg: "#AA2E00", tone: "dark" }, // L7 Commitments
+  journey: { bg: "#2D712A", tone: "dark" }, // L5 Mentoring
+};
+
+/** CSS variables for text and accents that sit directly on the step background. */
+function stepThemeVars(step: StepKey): React.CSSProperties {
+  const { bg, tone } = STEP_THEME[step];
+  const vars =
+    tone === "dark"
+      ? {
+          "--step-fg": "oklch(0.99 0.01 85)",
+          "--step-fg-soft": "oklch(0.99 0.01 85 / 0.82)",
+          "--step-fg-faint": "oklch(0.99 0.01 85 / 0.25)",
+          "--step-label": "var(--color-gold)",
+          "--step-highlight": "var(--color-gold)",
+          // Form navigation's primary action (the design's gold "NEXT" pill).
+          "--step-cta-bg": "#D4BF5C",
+          "--step-cta-fg": "var(--color-ink)",
+        }
+      : {
+          "--step-fg": "var(--color-ink)",
+          "--step-fg-soft": "oklch(0.16 0.02 280 / 0.75)",
+          "--step-fg-faint": "oklch(0.16 0.02 280 / 0.22)",
+          "--step-label": "var(--color-ink)",
+          "--step-highlight": "oklch(0.99 0.01 85)",
+          "--step-cta-bg": "var(--color-ink)",
+          "--step-cta-fg": "oklch(0.99 0.01 85)",
+        };
+  return { "--step-bg": bg, ...vars } as React.CSSProperties;
+}
+
 type PathId = "joy-corp" | "presidents" | "schools" | "systems" | "iksl";
 
 const PATHS: {
@@ -78,7 +115,7 @@ const PATHS: {
     description: "Companies redesigning around relational value, mentoring and joy.",
     mono: "JC",
     swatch: "oklch(0.70 0.14 45)",
-    banner: "/design/path-joy-corp.jpeg",
+    banner: "/design/path-joy-corp.png",
   },
   {
     id: "presidents",
@@ -87,7 +124,7 @@ const PATHS: {
     description: "Young people age 13 to 18 leading unreasonable, world changing projects.",
     mono: "IP",
     swatch: "oklch(0.82 0.14 88)",
-    banner: "/design/path-presidents.jpeg",
+    banner: "/design/path-presidents.png",
   },
   {
     id: "schools",
@@ -105,7 +142,7 @@ const PATHS: {
     description: "Citizens learning to shift the systems around them through mentoring.",
     mono: "SC",
     swatch: "oklch(0.60 0.12 230)",
-    banner: "/design/path-systems.jpeg",
+    banner: "/design/path-systems.png",
   },
   {
     id: "iksl",
@@ -114,7 +151,7 @@ const PATHS: {
     description: "Labs centering Indigenous knowledge as design for the next 100 years.",
     mono: "IK",
     swatch: "oklch(0.58 0.17 30)",
-    banner: "/design/path-iksl.jpeg",
+    banner: "/design/path-iksl.png",
   },
 ];
 
@@ -199,10 +236,34 @@ type FormState = {
   agreementsAccepted: Record<string, boolean>;
 };
 
+function createBlankForm(): FormState {
+  return {
+    goldenTicket: "",
+    path: null,
+    firstName: "",
+    lastName: "",
+    email: "",
+    motherTongue: "",
+    city: "",
+    country: "",
+    story: "",
+    beings: [
+      { name: "", note: "" },
+      { name: "", note: "" },
+      { name: "", note: "" },
+      { name: "", note: "" },
+    ],
+    quizAnswers: DEFAULT_QUIZ_ANSWERS,
+    agreementsAccepted: {},
+  };
+}
+
 // Local-only progress save so an applicant who closes the tab or refreshes
 // mid-ceremony doesn't lose 5-10 minutes of answers. Kept in localStorage
 // (not cookies): it never leaves the browser, has plenty of room for 61 quiz
 // answers, and survives a closed tab rather than just a closed session.
+// Nothing saved here is ever sent to Airtable: the server only hears about an
+// applicant when their ceremony ends (see storeSubmission).
 const PROGRESS_STORAGE_KEY = "aime-ceremony-in:progress";
 const PROGRESS_STORAGE_VERSION = 1;
 
@@ -211,7 +272,17 @@ type SavedProgress = {
   stepIdx: number;
   form: FormState;
   evaluation: EvaluationResult | null;
+  /** Quiz page the applicant was on, and how many pages earned XP. Optional: older saves lack them. */
+  quizPage?: number;
+  quizPagesDone?: number;
 };
+
+/** The final step. Reaching River Run means the ceremony has been submitted. */
+const JOURNEY_IDX = STEPS.findIndex((s) => s.key === "journey");
+
+/** A saved page number, kept inside [0, max] even if the stored value is stale or corrupt. */
+const toIndex = (v: unknown, max: number) =>
+  Math.min(Math.max(typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : 0, 0), max);
 
 function loadSavedProgress(): SavedProgress | null {
   try {
@@ -220,10 +291,41 @@ function loadSavedProgress(): SavedProgress | null {
     const parsed = JSON.parse(raw) as Partial<SavedProgress>;
     // Bail on anything that doesn't look like our own shape — a version bump
     // after a form-field change, corrupted JSON, or another app's leftover key.
-    if (parsed.version !== PROGRESS_STORAGE_VERSION || !parsed.form || typeof parsed.stepIdx !== "number") {
+    if (
+      parsed.version !== PROGRESS_STORAGE_VERSION ||
+      !parsed.form ||
+      typeof parsed.stepIdx !== "number" ||
+      !Number.isInteger(parsed.stepIdx)
+    ) {
       return null;
     }
-    return parsed as SavedProgress;
+    // A save sitting on River Run belongs to a ceremony that was already
+    // submitted (older builds saved again after finishing). Offering it as
+    // something to continue would let the applicant submit a second time.
+    if (parsed.stepIdx >= JOURNEY_IDX) {
+      clearSavedProgress();
+      return null;
+    }
+    if (parsed.stepIdx < 1) return null;
+
+    // Fill in anything a save from an older build lacks, so a field added to
+    // the form later never arrives undefined.
+    const blank = createBlankForm();
+    const saved = parsed.form;
+    return {
+      version: PROGRESS_STORAGE_VERSION,
+      stepIdx: parsed.stepIdx,
+      form: {
+        ...blank,
+        ...saved,
+        beings: blank.beings.map((b, i) => ({ ...b, ...saved.beings?.[i] })) as FormState["beings"],
+        quizAnswers: { ...blank.quizAnswers, ...saved.quizAnswers },
+        agreementsAccepted: { ...saved.agreementsAccepted },
+      },
+      evaluation: parsed.evaluation ?? null,
+      quizPage: toIndex(parsed.quizPage, QUIZ_PAGES.length - 1),
+      quizPagesDone: toIndex(parsed.quizPagesDone, QUIZ_PAGES.length),
+    };
   } catch {
     return null;
   }
@@ -242,6 +344,10 @@ function CeremonyIn() {
   const [direction, setDirection] = useState<"forward" | "back">("forward");
   const step = STEPS[stepIdx].key;
 
+  useEffect(() => {
+    document.body.style.backgroundColor = STEP_THEME[step].bg;
+  }, [step]);
+
   // Gently return to the top whenever the step changes so each screen
   // starts in view instead of wherever the last one was scrolled to.
   useEffect(() => {
@@ -251,32 +357,20 @@ function CeremonyIn() {
   // Lazy initializer: the object literal below (including the beings array)
   // is only ever constructed once, on mount, instead of being rebuilt and
   // discarded on every re-render.
-  const [form, setForm] = useState<FormState>(() => ({
-    goldenTicket: "",
-    path: null,
-    firstName: "",
-    lastName: "",
-    email: "",
-    motherTongue: "",
-    city: "",
-    country: "",
-    story: "",
-    beings: [
-      { name: "", note: "" },
-      { name: "", note: "" },
-      { name: "", note: "" },
-      { name: "", note: "" },
-    ],
-    quizAnswers: DEFAULT_QUIZ_ANSWERS,
-    agreementsAccepted: {},
-  }));
+  const [form, setForm] = useState<FormState>(createBlankForm);
 
-  // Read once on mount. The applicant stays on the Welcome screen either way —
+  // Whether an earlier visit left progress on this device. Read in an effect
+  // rather than during render: the server cannot see localStorage, so a render
+  // that read it would not match the server-rendered page and React would warn
+  // about hydration. The applicant stays on the Welcome screen either way;
   // resuming happens only if they choose to, via the prompt rendered there.
-  const [savedProgress] = useState<SavedProgress | null>(() =>
-    typeof window === "undefined" ? null : loadSavedProgress(),
-  );
+  const [savedProgress, setSavedProgress] = useState<SavedProgress | null>(null);
+  const [progressChecked, setProgressChecked] = useState(false);
   const [resumeDecided, setResumeDecided] = useState(false);
+  useEffect(() => {
+    setSavedProgress(loadSavedProgress());
+    setProgressChecked(true);
+  }, []);
 
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [evaluating, setEvaluating] = useState(false);
@@ -293,9 +387,16 @@ function CeremonyIn() {
   const [ticketError, setTicketError] = useState<string | null>(null);
   const verifiedTicketKey = useRef("");
 
-  // Guards against storing the same applicant twice if they navigate back and
-  // forward through the end of the flow.
-  const submittedRef = useRef(false);
+  // What has been sent to Airtable so far. Each kind is stored at most once,
+  // so navigating back and forward through the end of the flow never stores the
+  // same applicant twice. "blocked" is an applicant stopped at the verdict;
+  // "complete" is a finished ceremony and is final.
+  const storedRef = useRef<"none" | "blocked" | "complete">("none");
+  const [submitBusy, setSubmitBusy] = useState(false);
+  // Sticky until a write succeeds, so River Run can offer a retry.
+  const [submitFailed, setSubmitFailed] = useState(false);
+  // True once Airtable has the finished ceremony. From then on nothing is saved locally.
+  const [ceremonyStored, setCeremonyStored] = useState(false);
 
   const runFetchVisaPaths = useServerFn(fetchVisaPaths);
   const { data: cmsVisaPaths } = useQuery({
@@ -367,6 +468,12 @@ function CeremonyIn() {
 
   // Stable reference so the memoized QuizQuestionRow children only re-render
   // when their own value changes, not on every sibling slider drag.
+  // Quiz position lives here (not in QuizScreen) so a refresh resumes on the
+  // same page; quizPagesDone counts pages that have already earned XP.
+  const [quizPage, setQuizPage] = useState(0);
+  const [quizPagesDone, setQuizPagesDone] = useState(0);
+  const xp = stepIdx * 100 + quizPagesDone * XP_PER_QUIZ_PAGE;
+
   const setQuizAnswer = useCallback((id: string, v: number) => {
     setForm((f) => ({ ...f, quizAnswers: { ...f.quizAnswers, [id]: v } }));
   }, []);
@@ -384,20 +491,44 @@ function CeremonyIn() {
   // Nothing worth saving at the Welcome screen itself (a blank form), and
   // skipping it here also means we never overwrite a saved session with a
   // fresh blank one before the applicant has chosen to resume or start over.
+  // The same holds until we have actually looked for an earlier save. River Run
+  // is never saved either: a finished ceremony must not come back as something
+  // to continue.
   useEffect(() => {
-    if (stepIdx === 0) return;
+    if (!progressChecked || (savedProgress && !resumeDecided)) return;
+    if (stepIdx === 0 || step === "journey" || ceremonyStored) return;
     try {
-      const payload: SavedProgress = { version: PROGRESS_STORAGE_VERSION, stepIdx, form, evaluation };
+      const payload: SavedProgress = {
+        version: PROGRESS_STORAGE_VERSION,
+        stepIdx,
+        form,
+        evaluation,
+        quizPage,
+        quizPagesDone,
+      };
       localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(payload));
     } catch {
       // Storage full or unavailable — progress just won't resume, not fatal.
     }
-  }, [form, stepIdx, evaluation]);
+  }, [
+    progressChecked,
+    savedProgress,
+    resumeDecided,
+    ceremonyStored,
+    step,
+    form,
+    stepIdx,
+    evaluation,
+    quizPage,
+    quizPagesDone,
+  ]);
 
   const resumeProgress = () => {
     if (!savedProgress) return;
     setForm(savedProgress.form);
     setEvaluation(savedProgress.evaluation);
+    setQuizPage(savedProgress.quizPage ?? 0);
+    setQuizPagesDone(savedProgress.quizPagesDone ?? 0);
     setDirection("forward");
     setStepIdx(savedProgress.stepIdx);
     setResumeDecided(true);
@@ -408,24 +539,34 @@ function CeremonyIn() {
     setResumeDecided(true);
   };
 
-  // Stores the applicant exactly once, at whichever point their journey ends:
-  // straight after a blocking verdict, or after Agreements (the last step
-  // before River Run) for everyone who gets that far.
+  // Stores the applicant at whichever point their journey ends: straight after
+  // a blocking verdict ("blocked"), or after Agreements, the last step before
+  // River Run, for everyone who gets that far ("complete"). Anything short of
+  // that stays in this browser (see the progress save above) and is never sent.
   //
   // Deliberately never blocks navigation. The applicant has finished the
   // ceremony either way, and a storage outage should not strand them on the
-  // last screen.
+  // last screen. It does report whether the write went through, so the caller
+  // can keep the local save and offer a retry rather than discard the only
+  // copy of a submission Airtable never received.
+  //
+  // A blocked applicant who revises their reflection and gets through is stored
+  // again when they finish: the earlier record is the blocked attempt, not the
+  // completed ceremony.
   //
   // Agreements are only sent once the applicant has been through that step,
   // as the version they were shown (revision id) plus the statements they
   // ticked; the server verifies both against the live CMS.
   const storeSubmission = async (
+    kind: "blocked" | "complete",
     result: EvaluationResult | null,
     quizAnswers?: Record<string, number>,
     includeAgreements = false,
-  ) => {
-    if (submittedRef.current) return;
-    submittedRef.current = true;
+  ): Promise<boolean> => {
+    if (storedRef.current === "complete" || storedRef.current === kind) return true;
+    const previous = storedRef.current;
+    storedRef.current = kind;
+    setSubmitBusy(true);
 
     try {
       await runSubmit({
@@ -455,16 +596,35 @@ function CeremonyIn() {
           ...(result ? { evaluation: result } : {}),
         },
       });
+      setSubmitFailed(false);
+      return true;
     } catch (e) {
       // Allow a later attempt rather than losing the applicant entirely.
-      submittedRef.current = false;
+      storedRef.current = previous;
+      setSubmitFailed(true);
       console.error("Could not store the ceremony submission.", e);
+      return false;
+    } finally {
+      setSubmitBusy(false);
+    }
+  };
+
+  // Finishing the ceremony. The saved progress is dropped only once Airtable
+  // has the submission; if the write fails it stays, so the applicant can retry
+  // from River Run or come back later and continue from Agreements.
+  const completeCeremony = async () => {
+    const stored = await storeSubmission("complete", evaluation, form.quizAnswers, true);
+    if (stored) {
+      setCeremonyStored(true);
+      clearSavedProgress();
     }
   };
 
   const [showXpToast, setShowXpToast] = useState(false);
+  const [xpToastAmount, setXpToastAmount] = useState(100);
   const xpToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const popXpToast = () => {
+  const popXpToast = (amount = 100) => {
+    setXpToastAmount(amount);
     setShowXpToast(true);
     clearTimeout(xpToastTimer.current);
     xpToastTimer.current = setTimeout(() => setShowXpToast(false), 1400);
@@ -473,14 +633,14 @@ function CeremonyIn() {
   const next = async () => {
     setDirection("forward");
     if (step === "agreements") {
-      void storeSubmission(evaluation, form.quizAnswers, true);
-      clearSavedProgress();
+      void completeCeremony();
       setStepIdx((i) => Math.min(i + 1, STEPS.length - 1));
       popXpToast();
       return;
     }
     if (step === "identity" && form.goldenTicket.trim()) {
-      const key = `${form.goldenTicket.trim()}|${form.firstName.trim()}|${form.lastName.trim()}`.toLowerCase();
+      const key =
+        `${form.goldenTicket.trim()}|${form.firstName.trim()}|${form.lastName.trim()}`.toLowerCase();
       if (verifiedTicketKey.current !== key) {
         setTicketChecking(true);
         setTicketError(null);
@@ -530,7 +690,7 @@ function CeremonyIn() {
         // A blocked applicant never reaches the quiz, so this is the only
         // chance to record them.
         if (!result.canProceed) {
-          void storeSubmission(result);
+          void storeSubmission("blocked", result);
         }
         goTo("result");
         popXpToast();
@@ -566,6 +726,14 @@ function CeremonyIn() {
     popXpToast();
   };
 
+  const completeQuizPage = (pageIdx: number) => {
+    // pageIdx is the last page on the screen just finished; award every page up to it once.
+    if (pageIdx + 1 > quizPagesDone) {
+      setQuizPagesDone(pageIdx + 1);
+      popXpToast((pageIdx + 1 - quizPagesDone) * XP_PER_QUIZ_PAGE);
+    }
+  };
+
   const back = () => {
     setDirection("back");
     setStepIdx((i) => Math.max(i - 1, 0));
@@ -583,17 +751,22 @@ function CeremonyIn() {
   const pathName = paths.find((p) => p.id === form.path)?.name ?? null;
 
   return (
-    <>
+    <div className="step-theme" style={stepThemeVars(step)}>
       <SplashScreen />
-      <AmbientBackground step={step} />
-      <XpToast show={showXpToast} />
-      <main className="relative z-[1] mx-auto flex min-h-dvh max-w-3xl flex-col px-5 py-[52px] pb-[90px]">
+      <div aria-hidden="true" className="fixed inset-0" style={{ background: "var(--step-bg)" }} />
+      <XpToast show={showXpToast} amount={xpToastAmount} />
+      <main
+        className={`relative z-[1] mx-auto flex min-h-dvh flex-col px-5 py-[52px] pb-[90px] ${
+          step === "quiz" ? "max-w-3xl min-[900px]:max-w-6xl" : "max-w-3xl"
+        }`}
+      >
         <CeremonyHeader
           onHome={() => goTo("welcome")}
           name={showIdentityBadge ? fullName : null}
           pathName={showIdentityBadge ? pathName : null}
           stepIdx={stepIdx}
           totalSteps={STEPS.length}
+          xp={xp}
           stepLabel={STEPS[stepIdx].label}
           identityDone={stepIdx > identityIdx}
           storyDone={stepIdx > storyIdx}
@@ -612,6 +785,9 @@ function CeremonyIn() {
                 setGolden={(v) => setField("goldenTicket", v)}
                 onBegin={next}
                 resumeAvailable={Boolean(savedProgress) && !resumeDecided}
+                resumeStepLabel={savedProgress ? STEPS[savedProgress.stepIdx].label : ""}
+                resumeLevel={savedProgress ? savedProgress.stepIdx + 1 : 0}
+                totalLevels={STEPS.length}
                 onResume={resumeProgress}
                 onDiscard={discardProgress}
               />
@@ -655,8 +831,12 @@ function CeremonyIn() {
               <QuizScreen
                 answers={form.quizAnswers}
                 setAnswer={setQuizAnswer}
+                pageIdx={quizPage}
+                setPageIdx={setQuizPage}
+                totalXp={xp}
                 onBack={back}
                 onFinish={next}
+                onPageComplete={completeQuizPage}
               />
             )}
             {step === "agreements" && (
@@ -668,23 +848,34 @@ function CeremonyIn() {
                 onFinish={next}
               />
             )}
-            {step === "journey" && <JourneyScreen form={form} />}
+            {step === "journey" && (
+              <JourneyScreen
+                form={form}
+                xp={xp}
+                submitFailed={submitFailed}
+                submitBusy={submitBusy}
+                onRetry={completeCeremony}
+              />
+            )}
           </div>
         </section>
 
         {step !== "welcome" && step !== "quiz" && step !== "agreements" && (
-          <NavBar
-            canAdvance={canAdvance}
+          <FormNav
             onBack={back}
             onNext={next}
-            isLast={stepIdx === STEPS.length - 1}
-            step={step}
-            evaluating={evaluating}
-            blockedReason={blockedReason}
+            canAdvance={canAdvance}
+            busy={evaluating}
+            nextLabel={
+              evaluating ? "Reading your words..." : step === "story" ? "See your Ceremony" : "Next"
+            }
+            status={blockedReason || undefined}
+            label={pathName ?? undefined}
+            done={stepIdx === STEPS.length - 1 ? "Welcome to the river." : undefined}
           />
         )}
       </main>
-    </>
+    </div>
   );
 }
 
@@ -696,6 +887,7 @@ function CeremonyHeader({
   pathName,
   stepIdx,
   totalSteps,
+  xp,
   stepLabel,
   identityDone,
   storyDone,
@@ -707,6 +899,7 @@ function CeremonyHeader({
   pathName?: string | null;
   stepIdx: number;
   totalSteps: number;
+  xp: number;
   stepLabel: string;
   identityDone: boolean;
   storyDone: boolean;
@@ -715,7 +908,6 @@ function CeremonyHeader({
 }) {
   const hasBadge = Boolean(name || pathName);
   const ringPct = Math.round((stepIdx / (totalSteps - 1)) * 100);
-  const xp = stepIdx * 100;
   const badges: { label: string; unlocked: boolean; icon: string }[] = [
     { label: "Identity", unlocked: identityDone, icon: "/design/badge-star.png" },
     { label: "Story", unlocked: storyDone, icon: "/design/badge-smiley.png" },
@@ -734,17 +926,17 @@ function CeremonyHeader({
         >
           <img src="/design/logo-final.png" alt="" className="h-12 w-12 object-contain" />
           <div className="text-left leading-tight">
-            <div className="font-mono text-[10px] tracking-[0.18em] text-gold uppercase">
+            <div className="font-mono text-[10px] tracking-[0.18em] text-[var(--step-label)] uppercase">
               AIME Imagi-Nation
             </div>
-            <div className="font-display text-[22px] text-[oklch(0.99_0.01_85)]">Ceremony-In</div>
+            <div className="font-display text-[22px] text-[var(--step-fg)]">Ceremony-In</div>
           </div>
         </button>
         {hasBadge && (
-          <div className="animate-fade-in rounded-full border-[1.5px] border-ink bg-cream px-[18px] py-2 text-right">
-            {name && <div className="font-display text-sm text-ink">{name}</div>}
+          <div className="animate-fade-in text-right">
+            {name && <div className="font-display text-base text-[var(--step-fg)]">{name}</div>}
             {pathName && (
-              <div className="font-mono text-[9px] tracking-[0.12em] text-secondary uppercase">
+              <div className="font-mono text-[10px] tracking-[0.12em] text-[var(--step-fg-soft)] uppercase">
                 {pathName}
               </div>
             )}
@@ -761,18 +953,16 @@ function CeremonyHeader({
           <div
             className="grid h-11 w-11 shrink-0 place-items-center rounded-full transition-[background] duration-500"
             style={{
-              background: `conic-gradient(var(--color-gold) ${ringPct}%, oklch(0.99 0.01 85 / 0.18) 0)`,
+              background: `conic-gradient(var(--step-highlight) ${ringPct}%, var(--step-fg-faint) 0)`,
             }}
           >
-            <div className="grid h-8 w-8 place-items-center rounded-full bg-background">
+            <div className="grid h-8 w-8 place-items-center rounded-full bg-[var(--step-bg)]">
               <img src="/design/badge-star.png" alt="" className="h-3.5 w-3.5 object-contain" />
             </div>
           </div>
           <div>
-            <div className="font-mono text-[13px] font-bold text-[oklch(0.99_0.01_85)]">
-              {xp} XP
-            </div>
-            <div className="font-mono text-[9px] tracking-[0.06em] text-gold uppercase">
+            <div className="font-mono text-[13px] font-bold text-[var(--step-fg)]">{xp} XP</div>
+            <div className="font-mono text-[9px] tracking-[0.06em] text-[var(--step-label)] uppercase">
               {ringPct}% complete
             </div>
           </div>
@@ -814,19 +1004,19 @@ function CeremonyHeader({
               style={{
                 background:
                   i < stepIdx
-                    ? "var(--color-primary)"
+                    ? "var(--step-fg)"
                     : i === stepIdx
-                      ? "var(--color-gold)"
-                      : "oklch(0.99 0.01 85 / 0.25)",
+                      ? "var(--step-highlight)"
+                      : "var(--step-fg-faint)",
               }}
             />
           ))}
         </div>
-        <div className="mt-2 flex justify-between font-mono text-[10px] tracking-[0.14em] text-[oklch(0.92_0.03_85_/_0.92)] uppercase">
+        <div className="mt-2 flex justify-between font-mono text-[10px] tracking-[0.14em] text-[var(--step-fg-soft)] uppercase">
           <span>
             Level {stepIdx + 1} of {totalSteps}
           </span>
-          <span className="text-gold">{stepLabel}</span>
+          <span className="text-[var(--step-label)]">{stepLabel}</span>
         </div>
       </div>
     </div>
@@ -840,6 +1030,9 @@ function WelcomeScreen({
   setGolden,
   onBegin,
   resumeAvailable,
+  resumeStepLabel,
+  resumeLevel,
+  totalLevels,
   onResume,
   onDiscard,
 }: {
@@ -847,91 +1040,138 @@ function WelcomeScreen({
   setGolden: (v: string) => void;
   onBegin: () => void;
   resumeAvailable: boolean;
+  resumeStepLabel: string;
+  resumeLevel: number;
+  totalLevels: number;
   onResume: () => void;
   onDiscard: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Starting fresh throws away saved answers, so it asks once before doing it.
+  const [confirmingFresh, setConfirmingFresh] = useState(false);
   return (
     <div className="ceremony-card mx-auto max-w-xl p-8 sm:p-11">
       <div className="inline-flex items-center gap-2 rounded-full border-[1.5px] border-ink px-3.5 py-1.5 font-mono text-[10px] tracking-[0.1em] text-ink uppercase">
         <span aria-hidden="true">✦</span> You are welcome here
       </div>
       <h1 className="mt-5 text-[46px] leading-[0.98] text-ink">
-        Step into the <span className="text-primary">Ceremony-In</span>.
+        Step into the <span style={{ color: STEP_THEME.welcome.bg }}>Ceremony-In</span>.
       </h1>
       <p className="mt-4 max-w-md text-base leading-relaxed text-ink/65">
         This is where you meet the movement. A few gentle questions, a story you bring with you, and
         a path chosen with care. No forms that feel like forms.
       </p>
 
-      {resumeAvailable && (
-        <div className="animate-fade-in mt-6 flex flex-col gap-3 rounded-2xl border-[1.5px] border-ink/20 bg-primary-soft p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-sm font-semibold text-ink">Welcome back.</div>
-            <p className="mt-0.5 text-[13px] text-ink/70">
-              You have a Ceremony-In in progress on this device. Continue where you left off, or
-              start fresh.
-            </p>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <button
-              onClick={onResume}
-              className="inline-flex items-center justify-center rounded-full bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
-            >
-              Continue
-            </button>
-            <button
-              onClick={onDiscard}
-              className="inline-flex items-center justify-center rounded-full border-[1.5px] border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-white"
-            >
-              Start fresh
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="mt-8 flex flex-wrap items-center gap-3">
-        <button
-          onClick={onBegin}
-          className="cer-cta inline-flex items-center gap-2 rounded-full bg-primary px-[30px] py-4 text-[15px] font-bold text-primary-foreground"
-        >
-          Begin Ceremony-In →
-        </button>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          aria-controls="golden-ticket-panel"
-          className="inline-flex items-center gap-2 rounded-full border-[1.5px] border-ink px-[22px] py-3.5 text-sm font-semibold text-ink transition hover:bg-primary-soft"
-        >
-          <span aria-hidden="true">🎫</span> I have a Golden Ticket
-          <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
-        </button>
-      </div>
-
-      {open && (
+      {resumeAvailable ? (
+        // Saved progress was found. Continuing is the main action and "Begin"
+        // is withheld: starting over has to be a deliberate choice, never an
+        // accidental click that replaces what the applicant already wrote.
         <div
-          id="golden-ticket-panel"
-          className="animate-fade-in mt-5 rounded-2xl border-[1.5px] border-gold bg-cream p-5"
+          role="group"
+          aria-labelledby="resume-heading"
+          className="animate-fade-in mt-7 rounded-2xl border-[1.5px] border-ink/20 bg-primary-soft p-5"
         >
-          <label className="block">
-            <span className="block font-mono text-[10px] tracking-[0.12em] text-secondary uppercase">
-              Golden Ticket number
-            </span>
-            <input
-              value={golden}
-              onChange={(e) => setGolden(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder="e.g. 428"
-              aria-describedby="golden-ticket-help"
-              className="mt-2 w-full rounded-xl border-[1.5px] border-ink/25 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/25"
-            />
-          </label>
-          <p id="golden-ticket-help" className="mt-2 text-xs text-ink/70">
-            Optional. Enter the number on your ticket. We check it against the first and last name you
-            give next. A Golden Ticket unlocks mentor invitations and early stages on the River Run.
+          <h2 id="resume-heading" className="font-display text-[22px] leading-tight text-ink">
+            Welcome back.
+          </h2>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink/75">
+            Your Ceremony-In is saved on this device. You left off at{" "}
+            <strong className="font-semibold text-ink">{resumeStepLabel}</strong> (level{" "}
+            {resumeLevel} of {totalLevels}).
           </p>
+          <div className="mt-4" aria-live="polite">
+            {confirmingFresh ? (
+              <>
+                <p className="text-[13px] font-semibold text-ink">
+                  Start fresh? This clears your saved answers on this device and can't be undone.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onDiscard}
+                    className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-bold text-cream transition-transform hover:scale-105 active:scale-95"
+                  >
+                    Yes, start fresh
+                  </button>
+                  <button
+                    type="button"
+                    autoFocus
+                    onClick={() => setConfirmingFresh(false)}
+                    className="inline-flex items-center rounded-full border-[1.5px] border-ink px-5 py-2.5 text-sm font-semibold text-ink transition hover:bg-white"
+                  >
+                    Keep my progress
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onResume}
+                  className="cer-cta inline-flex items-center gap-2 rounded-full bg-primary px-[30px] py-4 text-[15px] font-bold text-primary-foreground"
+                >
+                  Continue where you left off →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingFresh(true)}
+                  className="inline-flex items-center rounded-full border-[1.5px] border-ink px-[22px] py-3.5 text-sm font-semibold text-ink transition hover:bg-white"
+                >
+                  Start fresh
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+      ) : (
+        <>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <button
+              onClick={onBegin}
+              className="cer-cta inline-flex items-center gap-2 rounded-full bg-primary px-[30px] py-4 text-[15px] font-bold text-primary-foreground"
+            >
+              Begin Ceremony-In →
+            </button>
+            <button
+              onClick={() => setOpen((o) => !o)}
+              aria-expanded={open}
+              aria-controls="golden-ticket-panel"
+              className="inline-flex items-center gap-2 rounded-full border-[1.5px] border-ink px-[22px] py-3.5 text-sm font-semibold text-ink transition hover:bg-primary-soft"
+            >
+              <span aria-hidden="true">🎫</span> I have a Golden Ticket
+              <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+            </button>
+          </div>
+
+          {open && (
+            <div
+              id="golden-ticket-panel"
+              className="animate-fade-in mt-5 rounded-2xl border-[1.5px] border-gold bg-cream p-5"
+            >
+              <label className="block">
+                <span className="block font-mono text-[10px] tracking-[0.12em] text-secondary uppercase">
+                  Golden Ticket number
+                </span>
+                <input
+                  value={golden}
+                  onChange={(e) => setGolden(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="e.g. 428"
+                  aria-describedby="golden-ticket-help"
+                  className="mt-2 w-full rounded-xl border-[1.5px] border-ink/25 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/25"
+                />
+              </label>
+              <p id="golden-ticket-help" className="mt-2 text-xs text-ink/70">
+                Optional. Enter the number on your ticket. We check it against the first and last
+                name you give next. A Golden Ticket unlocks mentor invitations and early stages on
+                the River Run.
+              </p>
+            </div>
+          )}
+
+          <SaveNote className="mt-6 text-ink/70" />
+        </>
       )}
 
       <div className="mt-9 flex flex-wrap gap-2.5">
@@ -995,13 +1235,13 @@ function PathScreen({
   return (
     <div>
       <div className="mx-auto max-w-xl">
-        <div className="font-mono text-[11px] tracking-[0.16em] text-gold uppercase">
+        <div className="font-mono text-[11px] tracking-[0.16em] text-[var(--step-label)] uppercase">
           Choose a visa path
         </div>
-        <h2 className="mt-2 text-[34px] leading-[1.02] text-[oklch(0.99_0.01_85)]">
+        <h2 className="mt-2 text-[34px] leading-[1.02] text-[var(--step-fg)]">
           Which doorway feels most like yours?
         </h2>
-        <p className="mt-2 text-[15px] text-[oklch(0.95_0.02_85_/_0.88)]">
+        <p className="mt-2 text-[15px] text-[var(--step-fg-soft)]">
           Pick the one that fits today. You can carry more than one over time.
         </p>
       </div>
@@ -1040,7 +1280,12 @@ function PathScreen({
                   pointerEvents: abs > 2 ? "none" : "auto",
                 }}
               >
-                <img src={p.banner} alt="" className="block h-full w-full object-cover" />
+                <img
+                  src={p.banner}
+                  alt=""
+                  className="block h-full w-full object-contain px-5 pt-14 pb-24"
+                />
+
                 <div
                   className="absolute inset-0"
                   style={{
@@ -1107,8 +1352,7 @@ function PathScreen({
                 className="block h-2 rounded-full transition-[width] duration-300"
                 style={{
                   width: i === carouselIdx ? "22px" : "8px",
-                  background:
-                    i === carouselIdx ? "var(--color-primary)" : "oklch(0.95 0.02 85 / 0.45)",
+                  background: i === carouselIdx ? "var(--step-highlight)" : "var(--step-fg-faint)",
                 }}
               />
             </button>
@@ -1116,11 +1360,11 @@ function PathScreen({
         </div>
 
         <div className="animate-fade-in mx-auto mt-[26px] max-w-[420px] text-center">
-          <div className="text-2xl text-[oklch(0.99_0.01_85)]">{active.name}</div>
-          <div className="mt-1 font-mono text-[11px] tracking-[0.06em] text-gold">
+          <div className="text-2xl text-[var(--step-fg)]">{active.name}</div>
+          <div className="mt-1 font-mono text-[11px] tracking-[0.06em] text-[var(--step-label)]">
             {active.tagline}
           </div>
-          <p className="mt-3.5 text-sm leading-relaxed text-[oklch(0.95_0.02_85_/_0.88)]">
+          <p className="mt-3.5 text-sm leading-relaxed text-[var(--step-fg-soft)]">
             {active.description}
           </p>
           <button
@@ -1128,23 +1372,23 @@ function PathScreen({
             aria-pressed={activeChosen}
             className="mt-[18px] inline-flex items-center gap-2 rounded-full border-2 px-[26px] py-3.5 text-sm font-bold transition-transform hover:scale-105 active:scale-[0.93]"
             style={{
-              borderColor: activeChosen ? "var(--color-gold)" : "oklch(0.95 0.02 85 / 0.6)",
+              borderColor: activeChosen ? "var(--color-gold)" : "var(--step-fg-soft)",
               background: activeChosen ? "var(--color-gold)" : "transparent",
-              color: activeChosen ? "var(--color-ink)" : "oklch(0.99 0.01 85)",
+              color: activeChosen ? "var(--color-ink)" : "var(--step-fg)",
             }}
           >
             {activeChosen ? `✓ ${active.name} chosen` : `Choose ${active.name}`}
           </button>
-          <div className="mx-auto mt-[22px] flex flex-col gap-2.5 border-t border-[oklch(0.95_0.02_85_/_0.15)] pt-4">
+          <div className="mx-auto mt-[22px] flex flex-col gap-2.5 border-t border-[var(--step-fg-faint)] pt-4">
             <div className="flex justify-between text-xs">
-              <span className="text-[oklch(0.95_0.02_85_/_0.75)]">Visa Path</span>
-              <span className="font-bold text-[oklch(0.99_0.01_85)]">{active.name}</span>
+              <span className="text-[var(--step-fg-soft)]">Visa Path</span>
+              <span className="font-bold text-[var(--step-fg)]">{active.name}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-[oklch(0.95_0.02_85_/_0.75)]">Status</span>
+              <span className="text-[var(--step-fg-soft)]">Status</span>
               <span
                 className="font-bold"
-                style={{ color: activeChosen ? "var(--color-gold)" : "oklch(0.95 0.02 85 / 0.8)" }}
+                style={{ color: activeChosen ? "var(--color-gold)" : "var(--step-fg-soft)" }}
               >
                 {activeChosen ? "✓ Chosen" : "Not selected yet"}
               </span>
@@ -1546,9 +1790,22 @@ function ResultScreen({
 
 /* ------------------------- 5. Journey ------------------------- */
 
-function JourneyScreen({ form }: { form: FormState }) {
+function JourneyScreen({
+  form,
+  xp,
+  submitFailed,
+  submitBusy,
+  onRetry,
+}: {
+  form: FormState;
+  xp: number;
+  /** True while Airtable has not received the finished ceremony. */
+  submitFailed: boolean;
+  submitBusy: boolean;
+  onRetry: () => Promise<void>;
+}) {
   const hasGolden = !!form.goldenTicket.trim();
-  const xp = 400;
+  // Stage names and notes are draft copy.
   const stages = [
     { title: "Ceremony-In", note: "You arrived with a story.", state: "done" as const },
     {
@@ -1577,6 +1834,8 @@ function JourneyScreen({ form }: { form: FormState }) {
       state: "locked" as const,
     },
   ];
+  const openCount = stages.filter((s) => s.state !== "locked").length;
+  const waitingCount = stages.length - openCount;
   const confetti = [
     { icon: "/design/badge-star.png", left: "6%", w: 20, dur: "1.9s", delay: "0s" },
     { icon: "/design/badge-tick.png", left: "22%", w: 16, dur: "2.2s", delay: "0.15s" },
@@ -1588,26 +1847,47 @@ function JourneyScreen({ form }: { form: FormState }) {
 
   return (
     <div>
-      <div className="mx-auto flex max-w-xl items-end justify-between gap-5">
-        <div>
-          <div className="font-mono text-[11px] tracking-[0.16em] text-gold uppercase">
-            River Run
+      {submitFailed && (
+        <div
+          role="alert"
+          className="mx-auto mb-5 max-w-xl rounded-2xl border-[1.5px] border-gold bg-cream p-5"
+        >
+          <div className="text-sm font-semibold text-ink">
+            We couldn't send your ceremony just now.
           </div>
-          <h2 className="mt-2 text-[32px] leading-[1.02] text-[oklch(0.99_0.01_85)]">
-            Your next steps down the river.
-          </h2>
-          <p className="mt-2 text-sm text-[oklch(0.95_0.02_85_/_0.88)]">
-            A gamified mentoring pathway. Move at the pace of trust.
+          <p className="mt-1 text-[13px] leading-relaxed text-ink/75">
+            Your answers are still saved on this device, so nothing is lost. Please try again. If it
+            keeps failing, come back later and continue from the Welcome screen.
           </p>
-          <p className="mt-1.5 font-mono text-[11px] tracking-[0.08em] text-gold uppercase">
-            You've earned {xp} XP getting here.
-          </p>
+          <button
+            type="button"
+            onClick={() => void onRetry()}
+            disabled={submitBusy}
+            className="mt-3 inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2 font-mono text-[11px] font-bold tracking-[0.12em] text-cream uppercase transition-transform hover:scale-105 active:scale-95 disabled:opacity-60"
+          >
+            {submitBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+            Try again
+          </button>
         </div>
+      )}
+      <div className="ceremony-card relative mx-auto max-w-xl p-7 sm:p-10">
         <img
           src="/design/passport.png"
           alt=""
-          className="w-[84px] shrink-0 rotate-6 drop-shadow-[0_12px_20px_oklch(0.1_0.05_300_/_0.5)]"
+          className="absolute -top-6 right-6 w-[72px] rotate-6 drop-shadow-[0_12px_20px_oklch(0.1_0.05_300_/_0.4)]"
         />
+        <div className="inline-flex rounded-full border-[1.5px] border-ink/70 px-3.5 py-1 font-mono text-[10px] tracking-[0.14em] text-ink/80 uppercase">
+          Unlocked
+        </div>
+        <h2 className="mt-4 text-[38px] leading-[1.02] text-ink">Your river is open.</h2>
+        <p className="mt-3 max-w-md font-mono text-[13px] leading-relaxed text-ink/80">
+          Eight levels in. Here is what opened up, and what is still waiting further down the river.
+        </p>
+        <ul className="mt-5 flex list-none flex-wrap gap-2 p-0" aria-label="Your River Run so far">
+          <JourneyChip>+{xp} XP earned</JourneyChip>
+          <JourneyChip>{openCount} stages open</JourneyChip>
+          <JourneyChip>{waitingCount} still waiting</JourneyChip>
+        </ul>
       </div>
 
       <div aria-hidden="true" className="relative mx-auto h-0 max-w-xl overflow-visible">
@@ -1626,83 +1906,58 @@ function JourneyScreen({ form }: { form: FormState }) {
         ))}
       </div>
 
-      <ol
-        aria-label="River Run stages"
-        className="mx-auto mt-7 grid max-w-xl list-none gap-3.5 p-0"
-      >
+      <div className="mx-auto mt-8 max-w-xl font-mono text-[11px] tracking-[0.16em] text-[var(--step-label)] uppercase">
+        Your next steps down the river
+      </div>
+      <ol aria-label="River Run stages" className="mx-auto mt-3 grid max-w-xl list-none gap-3 p-0">
         {stages.map((s) => {
           const done = s.state === "done";
           const unlocked = s.state === "unlocked";
           return (
-            <li key={s.title} className="flex items-start gap-3.5">
-              <div
-                aria-hidden="true"
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-ink text-base text-ink"
-                style={{
-                  background: done
-                    ? "var(--color-primary)"
-                    : unlocked
-                      ? "var(--color-gold)"
-                      : "oklch(0.9 0.01 85)",
-                }}
-              >
-                {done && (
-                  <img
-                    src="/design/badge-tick.png"
-                    alt=""
-                    className="h-[22px] w-[22px] object-contain"
-                  />
-                )}
-                {unlocked && (
-                  <img
-                    src="/design/badge-star.png"
-                    alt=""
-                    className="h-[22px] w-[22px] object-contain"
-                  />
-                )}
-                {!done && !unlocked && <Lock className="h-4 w-4" />}
+            <li
+              key={s.title}
+              className="rounded-[20px] bg-cream p-5 transition-transform hover:translate-x-[3px]"
+              style={{ opacity: done || unlocked ? 1 : 0.72 }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="text-[19px] leading-tight font-normal text-ink">{s.title}</h3>
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1 font-mono text-[10px] font-bold tracking-[0.1em] uppercase"
+                  style={{
+                    background: done
+                      ? "var(--color-ink)"
+                      : unlocked
+                        ? "#2D712A"
+                        : "oklch(0.16 0.02 280 / 0.1)",
+                    color: done || unlocked ? "var(--color-cream)" : "oklch(0.16 0.02 280 / 0.65)",
+                  }}
+                >
+                  {!done && !unlocked && <Lock className="h-3 w-3" aria-hidden="true" />}
+                  {done ? "Completed" : unlocked ? "Unlocked" : "Locked"}
+                </span>
               </div>
-              <div
-                className="flex-1 rounded-[20px] p-[18px] transition-transform hover:translate-x-[3px] sm:p-5"
-                style={{
-                  background: done
-                    ? "var(--color-primary-soft)"
-                    : unlocked
-                      ? "var(--color-cream)"
-                      : "oklch(0.97 0.03 85 / 0.55)",
-                }}
-              >
-                <div className="flex items-center justify-between gap-2.5">
-                  <h3 className="text-[17px] font-normal text-ink">{s.title}</h3>
-                  <span
-                    className="rounded-full px-3 py-1 text-[10px] font-bold"
-                    style={{
-                      background: done
-                        ? "var(--color-primary)"
-                        : unlocked
-                          ? "var(--color-gold)"
-                          : "oklch(0.85 0.01 85)",
-                      color: done ? "var(--color-cream)" : "var(--color-ink)",
-                    }}
-                  >
-                    {done ? "Completed" : unlocked ? "Unlocked" : "Locked"}
-                  </span>
-                </div>
-                <p className="mt-1 text-[13px] text-ink/75">{s.note}</p>
-                {unlocked && (
-                  <button
-                    aria-label={`Begin the ${s.title} stage`}
-                    className="mt-2.5 rounded-full bg-gold px-4.5 py-2.5 text-xs font-bold text-ink transition-transform hover:scale-105 active:scale-95"
-                  >
-                    Begin this stage →
-                  </button>
-                )}
-              </div>
+              <p className="mt-1 text-[13px] text-ink/75">{s.note}</p>
+              {unlocked && (
+                <button
+                  aria-label={`Begin the ${s.title} stage`}
+                  className="mt-3 rounded-full bg-ink px-4 py-2 font-mono text-[11px] font-bold tracking-[0.12em] text-cream uppercase transition-transform hover:scale-105 active:scale-95"
+                >
+                  Begin this stage →
+                </button>
+              )}
             </li>
           );
         })}
       </ol>
     </div>
+  );
+}
+
+function JourneyChip({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="rounded-full border-[1.5px] border-ink/60 px-3 py-1.5 font-mono text-[11px] text-ink">
+      {children}
+    </li>
   );
 }
 
@@ -1767,78 +2022,5 @@ function Detail({ k, v }: { k: string; v: string }) {
       <dt className="text-[9px] tracking-wider text-ink/62 uppercase">{k}</dt>
       <dd className="mt-0.5 text-ink">{v || "not shared"}</dd>
     </div>
-  );
-}
-
-function NavBar({
-  canAdvance,
-  onBack,
-  onNext,
-  isLast,
-  step,
-  evaluating,
-  blockedReason,
-}: {
-  canAdvance: boolean;
-  onBack: () => void;
-  onNext: () => void;
-  isLast: boolean;
-  step: StepKey;
-  evaluating?: boolean;
-  blockedReason?: string;
-}) {
-  const nextLabel = evaluating
-    ? "Reading your words..."
-    : step === "story"
-      ? "See your Ceremony"
-      : isLast
-        ? "Done"
-        : "Continue";
-  return (
-    <nav
-      aria-label="Ceremony steps"
-      // mt-28 (not the old mt-9) is deliberate: a `sticky bottom-4` nav stays
-      // pinned to the viewport bottom for the whole scroll of a tall screen
-      // (story, with 4 beings; result), so whatever content sits in that
-      // covered strip is hidden until the container's true end is reached.
-      // This margin reserves blank space above the nav at least as tall as
-      // its own rendered footprint, so the last real field always scrolls
-      // clear before the nav could ever cover it.
-      className="animate-fade-in sticky bottom-4 mt-28 flex items-center justify-between gap-2.5 rounded-full border-[1.5px] border-ink/15 bg-cream p-2"
-    >
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-secondary transition hover:bg-primary-soft"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back
-      </button>
-      {blockedReason && (
-        <span
-          id="next-blocked-reason"
-          role="status"
-          className="flex-1 text-right text-xs font-semibold text-secondary"
-        >
-          {blockedReason}
-        </span>
-      )}
-      {!isLast ? (
-        <button
-          onClick={() => canAdvance && onNext()}
-          aria-disabled={!canAdvance}
-          aria-describedby={blockedReason ? "next-blocked-reason" : undefined}
-          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-[26px] py-3.5 text-sm font-bold text-primary-foreground transition-transform hover:scale-105 active:scale-90"
-          style={{ opacity: canAdvance ? 1 : 0.4, cursor: canAdvance ? "pointer" : "not-allowed" }}
-        >
-          {evaluating && <Loader2 className="h-4 w-4 animate-spin" />}
-          {nextLabel}
-          {!evaluating && <ChevronRight className="h-4 w-4" />}
-        </button>
-      ) : (
-        <span className="rounded-full bg-primary-soft px-5 py-2.5 text-sm font-semibold text-secondary">
-          Welcome to the river.
-        </span>
-      )}
-    </nav>
   );
 }

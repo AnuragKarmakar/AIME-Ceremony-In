@@ -1,124 +1,395 @@
 import { memo, useState } from "react";
-import { ArrowLeft, ChevronRight } from "lucide-react";
-import { QUIZ_SECTIONS, type QuizQuestion, type QuizScale } from "@/lib/quiz.data";
+import { Zap } from "lucide-react";
+import { FormNav } from "@/components/FormNav";
+import { SaveNote } from "@/components/SaveNote";
+import type { QuizScale } from "@/lib/quiz.data";
+import {
+  PAGE_TO_SCREEN,
+  QUIZ_PAGES,
+  QUIZ_SCREENS,
+  QUIZ_THEMES,
+  XP_PER_QUIZ_PAGE,
+  type QuizPage,
+  type QuizTheme,
+} from "@/lib/quiz.pages";
 
-/** Max questions on one card, so long sections don't force a long scroll. */
-const QUESTIONS_PER_CARD = 4;
+/** Screen holding a page, clamped so a stale saved index can't fall out of range. */
+const screenOf = (pageIdx: number) =>
+  PAGE_TO_SCREEN[Math.min(Math.max(pageIdx, 0), QUIZ_PAGES.length - 1)];
 
-type QuizPage = {
-  sectionIdx: number;
-  /** 1-based position of this card within its section. */
-  part: number;
-  parts: number;
-  questions: QuizQuestion[];
+const TOTAL_QUESTIONS = QUIZ_PAGES.reduce((n, p) => n + p.questionCount, 0);
+
+/** Badge shown on each theme's reward screen, in theme order. */
+const THEME_BADGES = [
+  "/design/badge-star.png",
+  "/design/badge-tick.png",
+  "/design/badge-smiley.png",
+  "/design/badge-hoodie.png",
+  "/design/badge-star.png",
+];
+
+/**
+ * Animation played once on a theme's reward screen, keyed by the theme that
+ * was just completed. Themes without an entry fall back to the badge.
+ */
+const THEME_VIDEOS: Record<string, string> = {
+  imagination: "/design/transitions/imagine-bloom.mp4",
+  relations: "/design/transitions/pigeon-takeoff.mp4",
+  "ways-of-being": "/design/transitions/paper-crane-fold.mp4",
+  logic: "/design/transitions/puzzle-snap.mp4",
+  "indigenous-systems": "/design/transitions/australia-glow.mp4",
 };
-
-// A section of 13 becomes cards of 4, 4, 4 and 1. Answers stay keyed by
-// question id, so paging only changes what is shown, not what is stored.
-const QUIZ_PAGES: QuizPage[] = QUIZ_SECTIONS.flatMap((s, sectionIdx) => {
-  const parts = Math.max(1, Math.ceil(s.questions.length / QUESTIONS_PER_CARD));
-  return Array.from({ length: parts }, (_, i) => ({
-    sectionIdx,
-    part: i + 1,
-    parts,
-    questions: s.questions.slice(i * QUESTIONS_PER_CARD, (i + 1) * QUESTIONS_PER_CARD),
-  }));
-});
 
 export function QuizScreen({
   answers,
   setAnswer,
+  pageIdx,
+  setPageIdx,
+  totalXp,
   onBack,
   onFinish,
+  onPageComplete,
 }: {
   answers: Record<string, number>;
   setAnswer: (id: string, value: number) => void;
+  /** Index of the first page on the current screen. Owned by the parent so it survives a refresh. */
+  pageIdx: number;
+  setPageIdx: (updater: (i: number) => number) => void;
+  totalXp: number;
   onBack: () => void;
   onFinish: () => void;
+  /** Called once per completed screen with its last page index, to award XP for every page up to it. */
+  onPageComplete: (pageIdx: number) => void;
 }) {
-  const [pageIdx, setPageIdx] = useState(0);
   const [direction, setDirection] = useState<"forward" | "back">("forward");
-  const isFirst = pageIdx === 0;
-  const isLast = pageIdx === QUIZ_PAGES.length - 1;
-  const page = QUIZ_PAGES[pageIdx];
-  const sectionIdx = page.sectionIdx;
-  const section = QUIZ_SECTIONS[sectionIdx];
+  // Theme whose reward screen is showing, between its last screen and the next theme.
+  const [rewardTheme, setRewardTheme] = useState<number | null>(null);
+
+  const screenIdx = screenOf(pageIdx);
+  const screen = QUIZ_SCREENS[screenIdx];
+  const lastPageIdx = screen.pageIdxs[screen.pageIdxs.length - 1];
+  const isFirst = screenIdx === 0;
+  const isLast = screenIdx === QUIZ_SCREENS.length - 1;
+  const isThemeEnd = QUIZ_SCREENS[screenIdx + 1]?.themeIdx !== screen.themeIdx;
+
+  const scrollTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
   const goPrev = () => {
+    if (rewardTheme !== null) {
+      setRewardTheme(null);
+      setDirection("back");
+      scrollTop();
+      return;
+    }
     if (isFirst) {
       onBack();
       return;
     }
     setDirection("back");
-    // Clamped: isFirst/isLast are snapshots from the last render, so several
-    // clicks fired before React re-renders (e.g. a fast double-click) would
-    // otherwise push pageIdx out of QUIZ_PAGES' bounds and crash on the
-    // next render's QUIZ_PAGES[pageIdx] access.
-    setPageIdx((i) => Math.max(i - 1, 0));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    // Clamped: several clicks before a re-render must not push the index out of range.
+    setPageIdx((i) => QUIZ_SCREENS[Math.max(screenOf(i) - 1, 0)].pageIdxs[0]);
+    scrollTop();
+  };
+
+  const advanceScreen = () => {
+    setRewardTheme(null);
+    setDirection("forward");
+    setPageIdx((i) => QUIZ_SCREENS[Math.min(screenOf(i) + 1, QUIZ_SCREENS.length - 1)].pageIdxs[0]);
+    scrollTop();
   };
 
   const goNext = () => {
-    if (isLast) {
-      onFinish();
+    if (rewardTheme !== null) {
+      if (isLast) {
+        onFinish();
+        return;
+      }
+      advanceScreen();
       return;
     }
-    setDirection("forward");
-    setPageIdx((i) => Math.min(i + 1, QUIZ_PAGES.length - 1));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    onPageComplete(lastPageIdx);
+    if (isThemeEnd) {
+      setDirection("forward");
+      setRewardTheme(screen.themeIdx);
+      scrollTop();
+      return;
+    }
+    advanceScreen();
   };
 
-  return (
-    <div className="ceremony-card mx-auto max-w-xl overflow-x-clip p-7 sm:p-10">
-      <div
-        key={pageIdx}
-        className={direction === "forward" ? "animate-step-forward" : "animate-step-back"}
-      >
-        <div className="font-mono text-[11px] tracking-[0.16em] text-secondary uppercase">
-          {section.subtitle ?? "A relational check-in"}
-          {page.parts > 1 && ` · Part ${page.part} of ${page.parts}`}
-        </div>
-        <h2 className="mt-2 text-[28px] leading-tight text-ink">{section.title}</h2>
-        {section.intro && page.part === 1 && (
-          <p className="mt-2 text-[13px] leading-relaxed text-ink/75">{section.intro}</p>
-        )}
+  if (rewardTheme !== null) {
+    return (
+      <>
+        <ThemeReward
+          themeIdx={rewardTheme}
+          totalXp={totalXp}
+          answered={QUIZ_PAGES.slice(0, lastPageIdx + 1).reduce((n, p) => n + p.questionCount, 0)}
+          onContinue={advanceScreen}
+        />
+        <FormNav
+          onBack={goPrev}
+          backLabel="Back"
+          onNext={goNext}
+          nextLabel={isLast ? "Continue" : "Keep going"}
+          label={`Next: ${QUIZ_THEMES[rewardTheme + 1]?.title ?? "Agreements"}`}
+        />
+      </>
+    );
+  }
 
-        <div className="mt-6 grid gap-[26px]">
-          {page.questions.map((q) => (
-            <QuizQuestionRow
-              key={q.id}
-              id={q.id}
-              prompt={q.prompt}
-              scale={section.scale}
-              value={answers[q.id] ?? 0}
-              onChange={setAnswer}
-            />
-          ))}
-        </div>
+  const theme = QUIZ_THEMES[screen.themeIdx];
+  const pair = screen.pageIdxs.length > 1;
+  const xpForScreen = screen.pageIdxs.length * XP_PER_QUIZ_PAGE;
+
+  return (
+    <>
+      <div
+        key={screenIdx}
+        className={`${direction === "forward" ? "animate-step-forward" : "animate-step-back"} grid items-stretch gap-6 pb-24 ${
+          pair ? "min-[900px]:grid-cols-2" : ""
+        }`}
+      >
+        {screen.pageIdxs.map((pi, n) => (
+          <QuizCard
+            key={pi}
+            showHeader={n === 0}
+            page={QUIZ_PAGES[pi]}
+            themeIdx={screen.themeIdx}
+            theme={theme}
+            single={!pair}
+            answers={answers}
+            setAnswer={setAnswer}
+          />
+        ))}
       </div>
 
-      <QuizProgressDots total={QUIZ_SECTIONS.length} current={sectionIdx} />
+      <div className="mx-auto mt-6 max-w-xl">
+        <QuizProgressDots current={screenIdx} />
+        <SaveNote className="mt-5 text-[var(--step-fg-soft)]" />
+      </div>
 
-      {/* mt-28: see the matching comment on NavBar in routes/index.tsx — this
-          reserves enough clearance that the sticky bar never covers the last
-          question row while scrolling a long section. */}
-      <div className="animate-fade-in sticky bottom-4 mt-28 flex items-center justify-between gap-3 rounded-full border-[1.5px] border-ink/15 bg-cream p-2">
-        <button
-          onClick={goPrev}
-          className="inline-flex items-center gap-1.5 rounded-full px-[18px] py-2.5 text-[13px] font-semibold text-secondary transition hover:bg-primary-soft"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {isFirst ? "Back to your Ceremony" : "Previous"}
-        </button>
-        <button
-          onClick={goNext}
-          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-[22px] py-3 text-[13px] font-bold text-primary-foreground transition-transform hover:scale-105 active:scale-90"
-        >
-          {isLast ? "Continue" : "Next"}
-          <ChevronRight className="h-4 w-4" />
-        </button>
+      <FormNav
+        onBack={goPrev}
+        backLabel={isFirst ? "Back to your Ceremony" : "Back"}
+        onNext={goNext}
+        nextLabel={isLast ? "Continue" : "Next"}
+        label={`Screen ${screenIdx + 1} of ${QUIZ_SCREENS.length} · +${xpForScreen} XP`}
+      />
+    </>
+  );
+}
+
+function QuizCard({
+  page,
+  themeIdx,
+  theme,
+  single,
+  showHeader,
+  answers,
+  setAnswer,
+}: {
+  page: QuizPage;
+  themeIdx: number;
+  theme: QuizTheme;
+  /** A lone card (odd page count in a theme) is centered at a readable width. */
+  single: boolean;
+  /** The theme label and blurb appear once per screen, on the first card. */
+  showHeader: boolean;
+  answers: Record<string, number>;
+  setAnswer: (id: string, value: number) => void;
+}) {
+  return (
+    <div
+      className={`ceremony-card h-full w-full overflow-x-clip p-7 sm:p-10 min-[900px]:p-8 ${
+        single ? "mx-auto max-w-xl min-[900px]:p-10" : ""
+      }`}
+    >
+      {showHeader && (
+        <>
+          <div className="font-mono text-[11px] tracking-[0.16em] text-secondary uppercase">
+            Theme {themeIdx + 1} of {QUIZ_THEMES.length} — {theme.title}
+          </div>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink/70">{theme.blurb}</p>
+        </>
+      )}
+
+      <div className="mt-6 grid gap-8">
+        {page.blocks.map((block) => (
+          <section key={`${block.section.key}-${block.part?.index ?? 0}`}>
+            <h2 className="text-[24px] leading-tight text-ink">
+              {block.section.title}
+              {block.part && (
+                <span className="ml-2 align-middle font-mono text-[11px] tracking-[0.1em] text-ink/55 normal-case">
+                  {block.part.index} of {block.part.of}
+                </span>
+              )}
+            </h2>
+            {block.section.subtitle && (
+              <div className="mt-1 font-mono text-[10px] tracking-[0.12em] text-secondary uppercase">
+                {block.section.subtitle}
+              </div>
+            )}
+            {block.section.intro && (!block.part || block.part.index === 1) && (
+              <p className="mt-2 text-[13px] leading-relaxed text-ink/75">{block.section.intro}</p>
+            )}
+            <div className="mt-4 grid gap-[26px]">
+              {block.questions.map((q) => (
+                <QuizQuestionRow
+                  key={q.id}
+                  id={q.id}
+                  prompt={q.prompt}
+                  scale={block.section.scale}
+                  value={answers[q.id] ?? 0}
+                  onChange={setAnswer}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
       </div>
     </div>
+  );
+}
+
+function ThemeReward({
+  themeIdx,
+  totalXp,
+  answered,
+  onContinue,
+}: {
+  themeIdx: number;
+  totalXp: number;
+  answered: number;
+  onContinue: () => void;
+}) {
+  const theme = QUIZ_THEMES[themeIdx];
+  const next = QUIZ_THEMES[themeIdx + 1];
+  const themePages = QUIZ_PAGES.filter((p) => p.themeIdx === themeIdx).length;
+
+  const videoSrc = THEME_VIDEOS[theme.key];
+
+  return (
+    // data-quiz-milestone switches the page to the design's blue milestone
+    // background while this screen is up (see styles.css).
+    <div data-quiz-milestone className="animate-fade-in mx-auto max-w-xl text-center">
+      {videoSrc ? (
+        <TransitionVideo key={videoSrc} src={videoSrc} />
+      ) : (
+        <div className="relative mx-auto grid h-[200px] w-full max-w-xs place-items-center">
+          {MILESTONE_STARS.map((s, i) => (
+            <MilestoneStar key={i} {...s} />
+          ))}
+          <div className="grid h-44 w-44 place-items-center rounded-full border-[5px] border-ink bg-[#F1D75F]">
+            <img
+              src={THEME_BADGES[themeIdx % THEME_BADGES.length]}
+              alt=""
+              className="h-20 w-20 object-contain"
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 font-mono text-[11px] tracking-[0.16em] text-[var(--step-label)] uppercase">
+        Theme {themeIdx + 1} of {QUIZ_THEMES.length} complete
+      </div>
+      <h2 className="mt-2 text-[36px] leading-[1.02] text-white uppercase">
+        You made it through {theme.title}
+      </h2>
+      <p className="mx-auto mt-3 max-w-md text-[15px] text-[var(--step-fg-soft)]">
+        {next
+          ? `Next up: ${next.title}. ${next.blurb}`
+          : "That's the whole check-in. Next up: the agreements."}
+      </p>
+
+      <ul
+        className="mx-auto mt-7 grid max-w-sm list-none grid-cols-3 gap-3 p-0"
+        aria-label="Your progress so far"
+      >
+        <XpTile label="This theme" value={`+${themePages * XP_PER_QUIZ_PAGE}`} />
+        <XpTile label="Total XP" value={String(totalXp)} />
+        <XpTile label="Answered" value={`${answered}/${TOTAL_QUESTIONS}`} />
+      </ul>
+
+      <SaveNote className="mx-auto mt-7 max-w-md justify-center text-left text-[var(--step-fg-soft)]" />
+    </div>
+  );
+}
+
+// Plays once, with sound. The click on "Next" that opens this screen counts as
+// a user gesture, so unmuted autoplay is normally allowed; if the browser
+// still refuses, show the native controls so the viewer can press play.
+function TransitionVideo({ src }: { src: string }) {
+  const [blocked, setBlocked] = useState(false);
+
+  return (
+    <video
+      src={src}
+      autoPlay
+      playsInline
+      controls={blocked}
+      preload="auto"
+      aria-hidden={blocked ? undefined : true}
+      className="mx-auto block max-h-64 w-auto max-w-full rounded-[22px]"
+      ref={(el) => {
+        if (el && el.paused && !el.ended && el.currentTime === 0) {
+          el.play().catch(() => setBlocked(true));
+        }
+      }}
+    />
+  );
+}
+
+function XpTile({ label, value }: { label: string; value: string }) {
+  return (
+    <li className="rounded-[12px] bg-white p-1.5">
+      <div className="py-0.5 font-mono text-[10px] font-bold tracking-[0.08em] text-ink uppercase">
+        {label}
+      </div>
+      <div className="mt-1 flex items-center justify-center gap-1.5 rounded-[9px] bg-[#161F24] py-3.5 font-mono text-lg font-bold text-white">
+        <Zap aria-hidden="true" className="h-[18px] w-[18px]" fill="currentColor" strokeWidth={0} />
+        {value}
+      </div>
+    </li>
+  );
+}
+
+/** Stars scattered around the milestone badge, as in the design (offsets from its centre, in px). */
+const MILESTONE_STARS = [
+  { x: -109, y: -88, size: 18 },
+  { x: -94, y: -102, size: 9, white: true },
+  { x: 96, y: -96, size: 18 },
+  { x: -139, y: 66, size: 17 },
+  { x: 138, y: 52, size: 17 },
+];
+
+function MilestoneStar({
+  x,
+  y,
+  size,
+  white,
+}: {
+  x: number;
+  y: number;
+  size: number;
+  white?: boolean;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      className="absolute -translate-x-1/2 -translate-y-1/2"
+      style={{ left: `calc(50% + ${x}px)`, top: `calc(50% + ${y}px)` }}
+    >
+      <path
+        d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"
+        fill={white ? "#FFFFFF" : "#DFE576"}
+        stroke={white ? "none" : "#B9A8F2"}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -190,7 +461,7 @@ const QuizQuestionRow = memo(function QuizQuestionRow({
             aria-valuetext={scale[value]}
             className="cer-range w-full"
             style={{
-              background: `linear-gradient(to right, var(--color-primary) ${pct}%, oklch(0.88 0.02 85) ${pct}%)`,
+              background: `linear-gradient(to right, var(--color-ink) ${pct}%, oklch(0.88 0.02 85) ${pct}%)`,
             }}
           />
           <div aria-hidden="true" className="cer-scale-ticks">
@@ -199,7 +470,7 @@ const QuizQuestionRow = memo(function QuizQuestionRow({
                 key={i}
                 style={{
                   left: `${max ? (i / max) * 100 : 0}%`,
-                  background: i <= value ? "var(--color-primary)" : "oklch(0.16 0.02 280 / 0.3)",
+                  background: i <= value ? "var(--color-ink)" : "oklch(0.16 0.02 280 / 0.3)",
                 }}
               />
             ))}
@@ -209,7 +480,7 @@ const QuizQuestionRow = memo(function QuizQuestionRow({
               <span
                 key={i}
                 style={{
-                  color: i === value ? "var(--color-primary)" : "oklch(0.16 0.02 280 / 0.55)",
+                  color: i === value ? "var(--color-ink)" : "oklch(0.16 0.02 280 / 0.55)",
                   fontWeight: i === value ? 700 : 500,
                 }}
               >
@@ -223,36 +494,27 @@ const QuizQuestionRow = memo(function QuizQuestionRow({
   );
 });
 
-// Memoized so slider drags (which change `answers`, not `sectionIdx`) don't
-// re-render all 39 dots on every tick.
-const QuizProgressDots = memo(function QuizProgressDots({
-  total,
-  current,
-}: {
-  total: number;
-  current: number;
-}) {
+// Memoized so slider drags (which change `answers`, not the page) don't
+// re-render every dot on each tick.
+const QuizProgressDots = memo(function QuizProgressDots({ current }: { current: number }) {
   return (
-    <div className="mt-7">
+    <div aria-hidden="true">
       <div className="flex flex-wrap items-center gap-1">
-        {QUIZ_SECTIONS.map((s, i) => (
+        {QUIZ_SCREENS.map((sc, i) => (
           <span
-            key={s.key}
-            className="h-1.5 w-1.5 rounded-full transition-all duration-300"
+            key={i}
+            className="h-1.5 w-4 rounded-full transition-all duration-300"
             style={{
               background:
                 i < current
-                  ? "var(--color-primary)"
+                  ? "var(--color-ink)"
                   : i === current
-                    ? "var(--color-gold)"
+                    ? "var(--color-primary)"
                     : "oklch(0.16 0.02 280 / 0.15)",
-              transform: i === current ? "scale(1.4)" : "scale(1)",
+              marginLeft: i > 0 && QUIZ_SCREENS[i - 1].themeIdx !== sc.themeIdx ? 6 : 0,
             }}
           />
         ))}
-      </div>
-      <div className="mt-1.5 font-mono text-[10px] tracking-[0.1em] text-ink/68 uppercase">
-        Section {current + 1} of {total}
       </div>
     </div>
   );
