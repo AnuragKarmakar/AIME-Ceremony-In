@@ -147,6 +147,13 @@
 }
 .step-theme { transition: --step-bg 0.7s ease-out; }
 
+/* The quiz's theme-complete screen sits on the design's blue milestone frame.
+   Overrides the inline step colour, so the page and the form navigation fade
+   to it together and fade back when the next theme starts. The body colour
+   (set per step in index.tsx) follows too, so an overscroll bounce stays blue. */
+.step-theme:has([data-quiz-milestone]) { --step-bg: #7f8dc4 !important; }
+body:has([data-quiz-milestone]) { background-color: #7f8dc4 !important; }
+
 /* Step / page transitions */
 @keyframes step-forward {
   from {

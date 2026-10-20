@@ -727,9 +727,10 @@ function CeremonyIn() {
   };
 
   const completeQuizPage = (pageIdx: number) => {
+    // pageIdx is the last page on the screen just finished; award every page up to it once.
     if (pageIdx + 1 > quizPagesDone) {
       setQuizPagesDone(pageIdx + 1);
-      popXpToast(XP_PER_QUIZ_PAGE);
+      popXpToast((pageIdx + 1 - quizPagesDone) * XP_PER_QUIZ_PAGE);
     }
   };
 
@@ -752,13 +753,13 @@ function CeremonyIn() {
   return (
     <div className="step-theme" style={stepThemeVars(step)}>
       <SplashScreen />
-      <div
-        aria-hidden="true"
-        className="fixed inset-0"
-        style={{ background: "var(--step-bg)" }}
-      />
+      <div aria-hidden="true" className="fixed inset-0" style={{ background: "var(--step-bg)" }} />
       <XpToast show={showXpToast} amount={xpToastAmount} />
-      <main className="relative z-[1] mx-auto flex min-h-dvh max-w-3xl flex-col px-5 py-[52px] pb-[90px]">
+      <main
+        className={`relative z-[1] mx-auto flex min-h-dvh flex-col px-5 py-[52px] pb-[90px] ${
+          step === "quiz" ? "max-w-3xl min-[900px]:max-w-6xl" : "max-w-3xl"
+        }`}
+      >
         <CeremonyHeader
           onHome={() => goTo("welcome")}
           name={showIdentityBadge ? fullName : null}
@@ -866,11 +867,7 @@ function CeremonyIn() {
             canAdvance={canAdvance}
             busy={evaluating}
             nextLabel={
-              evaluating
-                ? "Reading your words..."
-                : step === "story"
-                  ? "See your Ceremony"
-                  : "Next"
+              evaluating ? "Reading your words..." : step === "story" ? "See your Ceremony" : "Next"
             }
             status={blockedReason || undefined}
             label={pathName ?? undefined}
