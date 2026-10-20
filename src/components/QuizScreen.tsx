@@ -2,7 +2,19 @@ import { memo, useState } from "react";
 import { FormNav } from "@/components/FormNav";
 import { SaveNote } from "@/components/SaveNote";
 import type { QuizScale } from "@/lib/quiz.data";
-import { QUIZ_PAGES, QUIZ_THEMES, THEME_LAST_PAGE, XP_PER_QUIZ_PAGE } from "@/lib/quiz.pages";
+import {
+  PAGE_TO_SCREEN,
+  QUIZ_PAGES,
+  QUIZ_SCREENS,
+  QUIZ_THEMES,
+  XP_PER_QUIZ_PAGE,
+  type QuizPage,
+  type QuizTheme,
+} from "@/lib/quiz.pages";
+
+/** Screen holding a page, clamped so a stale saved index can't fall out of range. */
+const screenOf = (pageIdx: number) =>
+  PAGE_TO_SCREEN[Math.min(Math.max(pageIdx, 0), QUIZ_PAGES.length - 1)];
 
 const TOTAL_QUESTIONS = QUIZ_PAGES.reduce((n, p) => n + p.questionCount, 0);
 
@@ -27,23 +39,25 @@ export function QuizScreen({
 }: {
   answers: Record<string, number>;
   setAnswer: (id: string, value: number) => void;
-  /** Owned by the parent so it survives a refresh with the rest of the saved progress. */
+  /** Index of the first page on the current screen. Owned by the parent so it survives a refresh. */
   pageIdx: number;
   setPageIdx: (updater: (i: number) => number) => void;
   totalXp: number;
   onBack: () => void;
   onFinish: () => void;
-  /** Called once per newly completed page, to award XP. */
+  /** Called once per completed screen with its last page index, to award XP for every page up to it. */
   onPageComplete: (pageIdx: number) => void;
 }) {
   const [direction, setDirection] = useState<"forward" | "back">("forward");
-  // Theme whose reward screen is showing, between its last page and the next theme.
+  // Theme whose reward screen is showing, between its last screen and the next theme.
   const [rewardTheme, setRewardTheme] = useState<number | null>(null);
 
-  const safeIdx = Math.min(Math.max(pageIdx, 0), QUIZ_PAGES.length - 1);
-  const page = QUIZ_PAGES[safeIdx];
-  const isFirst = safeIdx === 0;
-  const isLast = safeIdx === QUIZ_PAGES.length - 1;
+  const screenIdx = screenOf(pageIdx);
+  const screen = QUIZ_SCREENS[screenIdx];
+  const lastPageIdx = screen.pageIdxs[screen.pageIdxs.length - 1];
+  const isFirst = screenIdx === 0;
+  const isLast = screenIdx === QUIZ_SCREENS.length - 1;
+  const isThemeEnd = QUIZ_SCREENS[screenIdx + 1]?.themeIdx !== screen.themeIdx;
 
   const scrollTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -60,34 +74,34 @@ export function QuizScreen({
     }
     setDirection("back");
     // Clamped: several clicks before a re-render must not push the index out of range.
-    setPageIdx((i) => Math.max(i - 1, 0));
+    setPageIdx((i) => QUIZ_SCREENS[Math.max(screenOf(i) - 1, 0)].pageIdxs[0]);
     scrollTop();
   };
 
-  const advancePage = () => {
+  const advanceScreen = () => {
     setRewardTheme(null);
     setDirection("forward");
-    setPageIdx((i) => Math.min(i + 1, QUIZ_PAGES.length - 1));
+    setPageIdx((i) => QUIZ_SCREENS[Math.min(screenOf(i) + 1, QUIZ_SCREENS.length - 1)].pageIdxs[0]);
     scrollTop();
   };
 
   const goNext = () => {
     if (rewardTheme !== null) {
-      advancePage();
+      advanceScreen();
       return;
     }
-    onPageComplete(safeIdx);
+    onPageComplete(lastPageIdx);
     if (isLast) {
       onFinish();
       return;
     }
-    if (THEME_LAST_PAGE[page.themeIdx] === safeIdx) {
+    if (isThemeEnd) {
       setDirection("forward");
-      setRewardTheme(page.themeIdx);
+      setRewardTheme(screen.themeIdx);
       scrollTop();
       return;
     }
-    advancePage();
+    advanceScreen();
   };
 
   if (rewardTheme !== null) {
@@ -96,8 +110,8 @@ export function QuizScreen({
         <ThemeReward
           themeIdx={rewardTheme}
           totalXp={totalXp}
-          answered={QUIZ_PAGES.slice(0, safeIdx + 1).reduce((n, p) => n + p.questionCount, 0)}
-          onContinue={advancePage}
+          answered={QUIZ_PAGES.slice(0, lastPageIdx + 1).reduce((n, p) => n + p.questionCount, 0)}
+          onContinue={advanceScreen}
         />
         <FormNav
           onBack={goPrev}
@@ -110,60 +124,35 @@ export function QuizScreen({
     );
   }
 
-  const theme = QUIZ_THEMES[page.themeIdx];
+  const theme = QUIZ_THEMES[screen.themeIdx];
+  const pair = screen.pageIdxs.length > 1;
+  const xpForScreen = screen.pageIdxs.length * XP_PER_QUIZ_PAGE;
 
   return (
     <>
-      <div className="ceremony-card mx-auto max-w-xl overflow-x-clip p-7 sm:p-10">
-        <div
-          key={safeIdx}
-          className={direction === "forward" ? "animate-step-forward" : "animate-step-back"}
-        >
-          <div className="font-mono text-[11px] tracking-[0.16em] text-secondary uppercase">
-            Theme {page.themeIdx + 1} of {QUIZ_THEMES.length} — {theme.title}
-          </div>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-ink/70">{theme.blurb}</p>
+      <div
+        key={screenIdx}
+        className={`${direction === "forward" ? "animate-step-forward" : "animate-step-back"} grid items-stretch gap-6 pb-24 ${
+          pair ? "min-[900px]:grid-cols-2" : ""
+        }`}
+      >
+        {screen.pageIdxs.map((pi, n) => (
+          <QuizCard
+            key={pi}
+            showHeader={n === 0}
+            page={QUIZ_PAGES[pi]}
+            themeIdx={screen.themeIdx}
+            theme={theme}
+            single={!pair}
+            answers={answers}
+            setAnswer={setAnswer}
+          />
+        ))}
+      </div>
 
-          <div className="mt-6 grid gap-8">
-            {page.blocks.map((block) => (
-              <section key={`${block.section.key}-${block.part?.index ?? 0}`}>
-                <h2 className="text-[24px] leading-tight text-ink">
-                  {block.section.title}
-                  {block.part && (
-                    <span className="ml-2 align-middle font-mono text-[11px] tracking-[0.1em] text-ink/55 normal-case">
-                      {block.part.index} of {block.part.of}
-                    </span>
-                  )}
-                </h2>
-                {block.section.subtitle && (
-                  <div className="mt-1 font-mono text-[10px] tracking-[0.12em] text-secondary uppercase">
-                    {block.section.subtitle}
-                  </div>
-                )}
-                {block.section.intro && (!block.part || block.part.index === 1) && (
-                  <p className="mt-2 text-[13px] leading-relaxed text-ink/75">
-                    {block.section.intro}
-                  </p>
-                )}
-                <div className="mt-4 grid gap-[26px]">
-                  {block.questions.map((q) => (
-                    <QuizQuestionRow
-                      key={q.id}
-                      id={q.id}
-                      prompt={q.prompt}
-                      scale={block.section.scale}
-                      value={answers[q.id] ?? 0}
-                      onChange={setAnswer}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        </div>
-
-        <QuizProgressDots current={safeIdx} />
-        <SaveNote className="mt-5 text-ink/65" />
+      <div className="mx-auto mt-6 max-w-xl">
+        <QuizProgressDots current={screenIdx} />
+        <SaveNote className="mt-5 text-[var(--step-fg-soft)]" />
       </div>
 
       <FormNav
@@ -171,9 +160,81 @@ export function QuizScreen({
         backLabel={isFirst ? "Back to your Ceremony" : "Back"}
         onNext={goNext}
         nextLabel={isLast ? "Continue" : "Next"}
-        label={`Page ${safeIdx + 1} of ${QUIZ_PAGES.length} · +${XP_PER_QUIZ_PAGE} XP`}
+        label={`Screen ${screenIdx + 1} of ${QUIZ_SCREENS.length} · +${xpForScreen} XP`}
       />
     </>
+  );
+}
+
+function QuizCard({
+  page,
+  themeIdx,
+  theme,
+  single,
+  showHeader,
+  answers,
+  setAnswer,
+}: {
+  page: QuizPage;
+  themeIdx: number;
+  theme: QuizTheme;
+  /** A lone card (odd page count in a theme) is centered at a readable width. */
+  single: boolean;
+  /** The theme label and blurb appear once per screen, on the first card. */
+  showHeader: boolean;
+  answers: Record<string, number>;
+  setAnswer: (id: string, value: number) => void;
+}) {
+  return (
+    <div
+      className={`ceremony-card h-full w-full overflow-x-clip p-7 sm:p-10 min-[900px]:p-8 ${
+        single ? "mx-auto max-w-xl min-[900px]:p-10" : ""
+      }`}
+    >
+      {showHeader && (
+        <>
+          <div className="font-mono text-[11px] tracking-[0.16em] text-secondary uppercase">
+            Theme {themeIdx + 1} of {QUIZ_THEMES.length} — {theme.title}
+          </div>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink/70">{theme.blurb}</p>
+        </>
+      )}
+
+      <div className="mt-6 grid gap-8">
+        {page.blocks.map((block) => (
+          <section key={`${block.section.key}-${block.part?.index ?? 0}`}>
+            <h2 className="text-[24px] leading-tight text-ink">
+              {block.section.title}
+              {block.part && (
+                <span className="ml-2 align-middle font-mono text-[11px] tracking-[0.1em] text-ink/55 normal-case">
+                  {block.part.index} of {block.part.of}
+                </span>
+              )}
+            </h2>
+            {block.section.subtitle && (
+              <div className="mt-1 font-mono text-[10px] tracking-[0.12em] text-secondary uppercase">
+                {block.section.subtitle}
+              </div>
+            )}
+            {block.section.intro && (!block.part || block.part.index === 1) && (
+              <p className="mt-2 text-[13px] leading-relaxed text-ink/75">{block.section.intro}</p>
+            )}
+            <div className="mt-4 grid gap-[26px]">
+              {block.questions.map((q) => (
+                <QuizQuestionRow
+                  key={q.id}
+                  id={q.id}
+                  prompt={q.prompt}
+                  scale={block.section.scale}
+                  value={answers[q.id] ?? 0}
+                  onChange={setAnswer}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -350,9 +411,9 @@ const QuizQuestionRow = memo(function QuizQuestionRow({
 // re-render every dot on each tick.
 const QuizProgressDots = memo(function QuizProgressDots({ current }: { current: number }) {
   return (
-    <div className="mt-8" aria-hidden="true">
+    <div aria-hidden="true">
       <div className="flex flex-wrap items-center gap-1">
-        {QUIZ_PAGES.map((p, i) => (
+        {QUIZ_SCREENS.map((sc, i) => (
           <span
             key={i}
             className="h-1.5 w-4 rounded-full transition-all duration-300"
@@ -363,7 +424,7 @@ const QuizProgressDots = memo(function QuizProgressDots({ current }: { current: 
                   : i === current
                     ? "var(--color-primary)"
                     : "oklch(0.16 0.02 280 / 0.15)",
-              marginLeft: i > 0 && QUIZ_PAGES[i - 1].themeIdx !== p.themeIdx ? 6 : 0,
+              marginLeft: i > 0 && QUIZ_SCREENS[i - 1].themeIdx !== sc.themeIdx ? 6 : 0,
             }}
           />
         ))}

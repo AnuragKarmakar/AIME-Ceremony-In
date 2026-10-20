@@ -154,9 +154,79 @@ function buildPages(): QuizPage[] {
   return pages;
 }
 
-export const QUIZ_PAGES: QuizPage[] = buildPages();
+/**
+ * Keeps each theme's page count but redistributes its questions so every page
+ * holds the same number (or one more on the earlier pages). Sections that end
+ * up split across pages are labelled "x of n" over the whole theme.
+ */
+function balancePages(packed: QuizPage[]): QuizPage[] {
+  const out: QuizPage[] = [];
+  QUIZ_THEMES.forEach((_, themeIdx) => {
+    const count = packed.filter((p) => p.themeIdx === themeIdx).length;
+    const flat = packed
+      .filter((p) => p.themeIdx === themeIdx)
+      .flatMap((p) => p.blocks.flatMap((b) => b.questions.map((q) => ({ section: b.section, q }))));
+    const base = Math.floor(flat.length / count);
+    const extra = flat.length % count;
+
+    const slices: (typeof flat)[] = [];
+    let start = 0;
+    for (let i = 0; i < count; i++) {
+      const size = base + (i < extra ? 1 : 0);
+      slices.push(flat.slice(start, start + size));
+      start += size;
+    }
+
+    // How many pages each section appears on, for the "x of n" label.
+    const pieces = new Map<string, number>();
+    for (const slice of slices)
+      for (const key of new Set(slice.map((e) => e.section.key)))
+        pieces.set(key, (pieces.get(key) ?? 0) + 1);
+    const seen = new Map<string, number>();
+
+    for (const slice of slices) {
+      const blocks: QuizPageBlock[] = [];
+      for (const { section, q } of slice) {
+        const last = blocks[blocks.length - 1];
+        if (last && last.section.key === section.key) last.questions.push(q);
+        else blocks.push({ section, questions: [q] });
+      }
+      for (const b of blocks) {
+        const of = pieces.get(b.section.key) ?? 1;
+        const index = (seen.get(b.section.key) ?? 0) + 1;
+        seen.set(b.section.key, index);
+        if (of > 1) b.part = { index, of };
+      }
+      out.push({ themeIdx, blocks, questionCount: slice.length });
+    }
+  });
+  return out;
+}
+
+export const QUIZ_PAGES: QuizPage[] = balancePages(buildPages());
 
 /** Index of the last page of each theme. */
 export const THEME_LAST_PAGE: number[] = QUIZ_THEMES.map((_, t) =>
   QUIZ_PAGES.reduce((last, p, i) => (p.themeIdx === t ? i : last), -1),
 );
+
+/**
+ * A screen shows up to two pages (cards) side by side. Pairs never cross a
+ * theme boundary, so a theme with an odd number of pages ends on a single card.
+ */
+export type QuizScreenDef = { themeIdx: number; pageIdxs: number[] };
+
+function buildScreens(): QuizScreenDef[] {
+  const screens: QuizScreenDef[] = [];
+  QUIZ_PAGES.forEach((p, i) => {
+    const last = screens[screens.length - 1];
+    if (last && last.themeIdx === p.themeIdx && last.pageIdxs.length < 2) last.pageIdxs.push(i);
+    else screens.push({ themeIdx: p.themeIdx, pageIdxs: [i] });
+  });
+  return screens;
+}
+
+export const QUIZ_SCREENS: QuizScreenDef[] = buildScreens();
+
+/** Screen index for each page index. */
+export const PAGE_TO_SCREEN: number[] = QUIZ_SCREENS.flatMap((s, si) => s.pageIdxs.map(() => si));
