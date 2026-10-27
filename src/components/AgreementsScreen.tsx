@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { FormNav } from "@/components/FormNav";
-import type { AgreementContent } from "@/lib/wagtail.functions";
+import type { AgreementContent, AgreementStatement } from "@/lib/wagtail.functions";
 
 function Paragraphs({ text, className }: { text: string; className?: string }) {
   const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
@@ -23,41 +23,75 @@ function statementKey(agreementSlug: string, statementId: number) {
   return `${agreementSlug}:${statementId}`;
 }
 
+/**
+ * Whether one item is done: a statement is ticked, or a question is answered.
+ * A question with a correct answer only counts once that answer is chosen;
+ * one without accepts any answer.
+ */
+function isComplete(
+  key: string,
+  statement: AgreementStatement,
+  accepted: Record<string, boolean>,
+  answers: Record<string, string>,
+) {
+  if (statement.kind !== "question") return accepted[key] ?? false;
+  const chosen = statement.choices.find((c) => c.id === answers[key]);
+  if (!chosen) return false;
+  return statement.choices.some((c) => c.correct) ? chosen.correct : true;
+}
+
+/** Every item exists and is done. An agreement with none never counts as done. */
+function agreementComplete(
+  agreement: AgreementContent,
+  accepted: Record<string, boolean>,
+  answers: Record<string, string>,
+) {
+  return (
+    agreement.statements.length > 0 &&
+    agreement.statements.every((s) =>
+      isComplete(statementKey(agreement.slug, s.id), s, accepted, answers),
+    )
+  );
+}
+
 export function AgreementsScreen({
   agreements,
   accepted,
   setAccepted,
+  answers,
+  setAnswer,
   onBack,
   onFinish,
 }: {
   agreements: AgreementContent[];
   accepted: Record<string, boolean>;
   setAccepted: (key: string, value: boolean) => void;
+  /** Chosen answer id per question, keyed like `accepted`. */
+  answers: Record<string, string>;
+  setAnswer: (key: string, choiceId: string) => void;
   onBack: () => void;
   onFinish: () => void;
 }) {
-  // Starts on the first agreement that is not fully ticked, so an applicant
-  // who left part-way through (their ticks are saved) resumes where they
-  // stopped instead of re-reading the ones already done. With nothing ticked
-  // that is the first agreement; with everything ticked, the last.
+  // Starts on the first agreement that is not complete, so an applicant who
+  // left part-way through (their ticks and answers are saved) resumes where
+  // they stopped instead of re-reading the ones already done. With nothing
+  // done that is the first agreement; with everything done, the last.
   const [pageIdx, setPageIdx] = useState(() => {
-    const firstOpen = agreements.findIndex(
-      (ag) =>
-        ag.statements.length === 0 ||
-        !ag.statements.every((s) => accepted[statementKey(ag.slug, s.id)]),
-    );
+    const firstOpen = agreements.findIndex((ag) => !agreementComplete(ag, accepted, answers));
     return firstOpen === -1 ? Math.max(agreements.length - 1, 0) : firstOpen;
   });
   const [direction, setDirection] = useState<"forward" | "back">("forward");
   const isFirst = pageIdx === 0;
   const isLast = pageIdx === agreements.length - 1;
   const agreement = agreements[pageIdx];
-  // Every statement must exist and be individually checked. An agreement
-  // with zero statements (a content gap) is never treated as satisfied,
-  // rather than trivially passing with nothing to check.
-  const allChecked =
-    agreement.statements.length > 0 &&
-    agreement.statements.every((s) => accepted[statementKey(agreement.slug, s.id)]);
+  // Every item must exist and be done. An agreement with zero items (a
+  // content gap) is never treated as satisfied, rather than trivially passing
+  // with nothing to check.
+  const allChecked = agreementComplete(agreement, accepted, answers);
+  const hasQuestions = agreement.statements.some((s) => s.kind === "question");
+  const todo = hasQuestions
+    ? "Tick every statement and answer every question to continue."
+    : "Tick every statement to continue.";
 
   const goPrev = () => {
     if (isFirst) {
@@ -128,11 +162,22 @@ export function AgreementsScreen({
               {agreement.statements.length === 0 && (
                 <p className="rounded-xl border border-dashed border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
                   This agreement has no statements to accept yet. Add at least one in the Wagtail
-                  admin (Snippets → Agreements) before an applicant can continue past this page.
+                  admin (Content Management → Agreements) before an applicant can continue past this page.
                 </p>
               )}
               {agreement.statements.map((statement) => {
                 const key = statementKey(agreement.slug, statement.id);
+                if (statement.kind === "question") {
+                  return (
+                    <ChoiceQuestion
+                      key={statement.id}
+                      name={key}
+                      statement={statement}
+                      chosenId={answers[key]}
+                      onChoose={(choiceId) => setAnswer(key, choiceId)}
+                    />
+                  );
+                }
                 const checked = accepted[key] ?? false;
                 return (
                   <label
@@ -151,9 +196,7 @@ export function AgreementsScreen({
               })}
             </div>
             {!allChecked && agreement.statements.length > 0 && (
-              <p className="mt-3 text-xs font-semibold text-secondary">
-                Tick every statement to continue.
-              </p>
+              <p className="mt-3 text-xs font-semibold text-secondary">{todo}</p>
             )}
           </div>
         </div>
@@ -184,9 +227,69 @@ export function AgreementsScreen({
         canAdvance={allChecked}
         nextLabel={isLast ? "See River Run" : "Next"}
         nextIcon={isLast ? <ShieldCheck className="h-4 w-4" /> : undefined}
-        status={allChecked ? undefined : "Tick every statement to continue."}
+        status={allChecked ? undefined : todo}
         label={`Agreement ${pageIdx + 1} of ${agreements.length}`}
       />
     </>
+  );
+}
+
+/**
+ * A multiple-choice question inside an agreement. When the CMS marks one
+ * answer as correct the applicant hears straight away whether they got it,
+ * and can try again; otherwise any answer is simply recorded.
+ */
+function ChoiceQuestion({
+  name,
+  statement,
+  chosenId,
+  onChoose,
+}: {
+  name: string;
+  statement: AgreementStatement;
+  chosenId: string | undefined;
+  onChoose: (choiceId: string) => void;
+}) {
+  const chosen = statement.choices.find((c) => c.id === chosenId);
+  const checked = statement.choices.some((c) => c.correct);
+  const feedbackId = `${name}-feedback`;
+  return (
+    <fieldset
+      className="rounded-2xl bg-[oklch(0.99_0.01_85)] p-3.5"
+      aria-describedby={chosen && checked ? feedbackId : undefined}
+    >
+      <legend className="float-left mb-2 w-full text-[13px] leading-[1.55] font-semibold text-ink">
+        {statement.text}
+      </legend>
+      <div className="clear-both grid gap-1.5">
+        {statement.choices.map((choice) => (
+          <label
+            key={choice.id}
+            className="flex cursor-pointer items-start gap-2.5 rounded-xl p-2 transition-colors hover:bg-primary-soft"
+          >
+            <input
+              type="radio"
+              name={name}
+              value={choice.id}
+              checked={chosenId === choice.id}
+              onChange={() => onChoose(choice.id)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-primary)]"
+            />
+            <span className="text-[13px] leading-[1.55] text-ink">{choice.text}</span>
+          </label>
+        ))}
+      </div>
+      {chosen && checked && (
+        <p
+          id={feedbackId}
+          role="status"
+          className={`mt-2 text-xs font-semibold ${chosen.correct ? "text-[#2D712A]" : "text-destructive"}`}
+        >
+          {chosen.correct
+            ? "That's right."
+            : "Not quite. Have another read of the agreement above and try again."}
+        </p>
+      )}
+    </fieldset>
   );
 }

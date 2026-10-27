@@ -11,15 +11,34 @@ const VisaPathContentSchema = z.object({
 
 export type VisaPathContent = z.infer<typeof VisaPathContentSchema>;
 
-// One individually-checkable point within an agreement's submission
-// section. `id` is a stable Wagtail row id, used both as a React key and as
-// the key under which acceptance is tracked in FormState.agreementsAccepted.
+// One answer to a multiple-choice question. `id` is stable across edits, so
+// it is what an applicant's answer is saved and submitted as.
+const AgreementChoiceSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  correct: z.boolean(),
+});
+
+export type AgreementChoice = z.infer<typeof AgreementChoiceSchema>;
+
+// One item within an agreement's submission section: a statement to tick, or
+// a multiple-choice question. `id` is a stable Wagtail row id, used as a React
+// key and in the keys of FormState.agreementsAccepted / agreementAnswers.
+// A CMS from before questions existed sends neither `kind` nor `choices`;
+// anything that isn't a question with choices is treated as a statement.
 const AgreementStatementSchema = z
   .object({
     id: z.number(),
     text: z.string(),
+    kind: z.string().optional(),
+    choices: z.array(AgreementChoiceSchema).optional(),
   })
-  .transform((v) => ({ id: v.id, text: v.text }));
+  .transform((v) => {
+    const choices = v.choices ?? [];
+    const kind: "statement" | "question" =
+      v.kind === "question" && choices.length > 0 ? "question" : "statement";
+    return { id: v.id, text: v.text, kind, choices: kind === "question" ? choices : [] };
+  });
 
 export type AgreementStatement = z.infer<typeof AgreementStatementSchema>;
 

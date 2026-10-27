@@ -68,6 +68,12 @@ const InputSchema = z.object({
         slug: z.string().max(MAX_SHORT_TEXT_LENGTH),
         revisionId: z.number().int().nullable(),
         acceptedStatementIds: z.array(z.number().int()).max(MAX_STATEMENTS),
+        /** The answer chosen for each multiple-choice question. */
+        answers: z
+          .array(z.object({ statementId: z.number().int(), choiceId: z.string().max(64) }))
+          .max(MAX_STATEMENTS)
+          .optional()
+          .default([]),
       }),
     )
     .max(MAX_AGREEMENTS)

@@ -189,8 +189,8 @@ const AGREEMENTS_FALLBACK: AgreementContent[] = [
     submissionTitle: "Placeholder Submission Title",
     submissionDescription: "Placeholder submission description.",
     statements: [
-      { id: 1, text: "Placeholder statement one." },
-      { id: 2, text: "Placeholder statement two." },
+      { id: 1, text: "Placeholder statement one.", kind: "statement", choices: [] },
+      { id: 2, text: "Placeholder statement two.", kind: "statement", choices: [] },
     ],
   },
   {
@@ -206,8 +206,8 @@ const AGREEMENTS_FALLBACK: AgreementContent[] = [
     submissionTitle: "Placeholder Submission Title",
     submissionDescription: "Placeholder submission description.",
     statements: [
-      { id: 1, text: "Placeholder statement one." },
-      { id: 2, text: "Placeholder statement two." },
+      { id: 1, text: "Placeholder statement one.", kind: "statement", choices: [] },
+      { id: 2, text: "Placeholder statement two.", kind: "statement", choices: [] },
     ],
   },
 ];
@@ -234,6 +234,8 @@ type FormState = {
   beings: [Being, Being, Being, Being];
   quizAnswers: Record<string, number>;
   agreementsAccepted: Record<string, boolean>;
+  /** Chosen answer id for each multiple-choice question, keyed `${slug}:${statementId}`. */
+  agreementAnswers: Record<string, string>;
 };
 
 function createBlankForm(): FormState {
@@ -255,6 +257,7 @@ function createBlankForm(): FormState {
     ],
     quizAnswers: DEFAULT_QUIZ_ANSWERS,
     agreementsAccepted: {},
+    agreementAnswers: {},
   };
 }
 
@@ -321,6 +324,7 @@ function loadSavedProgress(): SavedProgress | null {
         beings: blank.beings.map((b, i) => ({ ...b, ...saved.beings?.[i] })) as FormState["beings"],
         quizAnswers: { ...blank.quizAnswers, ...saved.quizAnswers },
         agreementsAccepted: { ...saved.agreementsAccepted },
+        agreementAnswers: { ...saved.agreementAnswers },
       },
       evaluation: parsed.evaluation ?? null,
       quizPage: toIndex(parsed.quizPage, QUIZ_PAGES.length - 1),
@@ -482,6 +486,10 @@ function CeremonyIn() {
     setForm((f) => ({ ...f, agreementsAccepted: { ...f.agreementsAccepted, [key]: v } }));
   }, []);
 
+  const setAgreementAnswer = useCallback((key: string, choiceId: string) => {
+    setForm((f) => ({ ...f, agreementAnswers: { ...f.agreementAnswers, [key]: choiceId } }));
+  }, []);
+
   const goTo = (key: StepKey) => {
     const target = STEPS.findIndex((s) => s.key === key);
     setDirection(target >= stepIdx ? "forward" : "back");
@@ -588,8 +596,16 @@ function CeremonyIn() {
                   slug: a.slug,
                   revisionId: a.revisionId,
                   acceptedStatementIds: a.statements
+                    .filter((s) => s.kind === "statement")
                     .filter((s) => form.agreementsAccepted[`${a.slug}:${s.id}`])
                     .map((s) => s.id),
+                  answers: a.statements
+                    .filter((s) => s.kind === "question")
+                    .map((s) => ({
+                      statementId: s.id,
+                      choiceId: form.agreementAnswers[`${a.slug}:${s.id}`] ?? "",
+                    }))
+                    .filter((answer) => answer.choiceId),
                 })),
               }
             : {}),
@@ -844,6 +860,8 @@ function CeremonyIn() {
                 agreements={agreements}
                 accepted={form.agreementsAccepted}
                 setAccepted={setAgreementAccepted}
+                answers={form.agreementAnswers}
+                setAnswer={setAgreementAnswer}
                 onBack={back}
                 onFinish={next}
               />

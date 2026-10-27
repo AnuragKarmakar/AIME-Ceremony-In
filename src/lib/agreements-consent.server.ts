@@ -10,6 +10,18 @@ export type SubmittedAgreement = {
   /** Revision the applicant was shown (null for hardcoded fallback copy). */
   revisionId: number | null;
   acceptedStatementIds: number[];
+  /** The answer chosen for each multiple-choice question. */
+  answers?: { statementId: number; choiceId: string }[];
+};
+
+/** One multiple-choice answer, with the wording as it stood when stored. */
+export type AnswerRecord = {
+  statementId: number;
+  question: string;
+  choiceId: string;
+  answer: string | null;
+  /** Whether it was the correct answer; null when the question has none. */
+  correct: boolean | null;
 };
 
 export type AgreementRecord = {
@@ -19,10 +31,14 @@ export type AgreementRecord = {
   shownRevisionId: number | null;
   /** Revision live in the CMS when the submission was stored. */
   liveRevisionId: number | null;
-  /** sha256 of the live text (titles, body, statements), so the exact wording is provable. */
+  /** sha256 of the live text (titles, body, statements, questions), so the exact wording is provable. */
   textSha256: string | null;
   acceptedStatementIds: number[];
-  /** Every statement of the live version was ticked, and that version is the one shown. */
+  answers: AnswerRecord[];
+  /**
+   * The version shown is the live one, every statement was ticked and every
+   * question answered (correctly, where a question has a correct answer).
+   */
   allAccepted: boolean;
   /** False when the CMS could not be reached or no longer has this agreement. */
   verified: boolean;
@@ -36,15 +52,24 @@ function agreementTextHash(a: AgreementContent): string {
     a.bodyDescription,
     a.submissionTitle,
     a.submissionDescription,
-    ...a.statements.map((s) => `${s.id}:${s.text}`),
+    // Statements keep their original line format, so hashes of agreements
+    // without questions match records stored before questions existed.
+    ...a.statements.map((s) =>
+      s.kind === "question"
+        ? `${s.id}:question:${s.text}:${s.choices
+            .map((c) => `${c.id}=${c.correct ? "*" : ""}${c.text}`)
+            .join("|")}`
+        : `${s.id}:${s.text}`,
+    ),
   ].join("\n");
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
 /**
  * Builds the consent record stored in "Agreements Accepted". The client says
- * what it showed and what was ticked; the server checks that against the
- * live CMS so the record cannot claim acceptance of text that was not there.
+ * what it showed, ticked and answered; the server checks that against the
+ * live CMS so the record cannot claim acceptance of text that was not there,
+ * or a correct answer that was not given.
  */
 export async function buildAgreementRecords(
   submitted: SubmittedAgreement[],
@@ -52,6 +77,7 @@ export async function buildAgreementRecords(
   const live = await loadAgreements();
   return submitted.map((entry) => {
     const accepted = [...new Set(entry.acceptedStatementIds)].sort((a, b) => a - b);
+    const chosen = new Map((entry.answers ?? []).map((a) => [a.statementId, a.choiceId]));
     const current = live?.find((a) => a.slug === entry.slug);
     if (!current) {
       return {
@@ -61,20 +87,47 @@ export async function buildAgreementRecords(
         liveRevisionId: null,
         textSha256: null,
         acceptedStatementIds: accepted,
+        answers: [...chosen].map(([statementId, choiceId]) => ({
+          statementId,
+          question: "",
+          choiceId,
+          answer: null,
+          correct: null,
+        })),
         allAccepted: false,
         verified: false,
       };
     }
-    const liveIds = current.statements.map((s) => s.id);
+
+    const statementIds = current.statements.filter((s) => s.kind === "statement").map((s) => s.id);
+    const answers: AnswerRecord[] = current.statements
+      .filter((s) => s.kind === "question")
+      .map((s) => {
+        const choiceId = chosen.get(s.id) ?? "";
+        const choice = s.choices.find((c) => c.id === choiceId);
+        const hasCorrect = s.choices.some((c) => c.correct);
+        return {
+          statementId: s.id,
+          question: s.text,
+          choiceId,
+          answer: choice?.text ?? null,
+          correct: choice && hasCorrect ? choice.correct : null,
+        };
+      });
+    const questionsDone = answers.every((a) => a.answer !== null && a.correct !== false);
+
     return {
       slug: current.slug,
       title: current.headerTitle,
       shownRevisionId: entry.revisionId,
       liveRevisionId: current.revisionId,
       textSha256: agreementTextHash(current),
-      acceptedStatementIds: accepted.filter((id) => liveIds.includes(id)),
+      acceptedStatementIds: accepted.filter((id) => statementIds.includes(id)),
+      answers,
       allAccepted:
-        entry.revisionId === current.revisionId && liveIds.every((id) => accepted.includes(id)),
+        entry.revisionId === current.revisionId &&
+        statementIds.every((id) => accepted.includes(id)) &&
+        questionsDone,
       verified: true,
     };
   });

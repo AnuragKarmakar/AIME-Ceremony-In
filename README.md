@@ -6,15 +6,28 @@ Live: http://3.217.19.123/
 
 ## Features
 
-- **8-step guided ceremony** — Welcome → Visa Path → Who you are → Your story → Ceremony (verdict) → Relational Check-in → Agreements → River Run, with animated forward/back transitions, XP and level progress, and an ambient animated background that respects `prefers-reduced-motion`.
+- **8-step guided ceremony** — Welcome → Visa Path → Who you are → Your story → Ceremony (verdict) → Relational Check-in → Agreements → River Run, with animated forward/back transitions, XP and level progress, and a solid background colour per step that fades between steps. One shared navigation bar (`FormNav`) handles Back / Next on every step.
 - **Visa Paths** — five entry doorways into the movement (Joy Corp, IMAGI-NATION Presidents, IMAGI-NATION Schools, Systems Change Citizens, Indigenous Knowledge Systems Labs). Their copy (name, tagline, description, order) comes from the Wagtail CMS; icons, colours and banners stay in the frontend.
 - **AI-reviewed reflection** — the applicant's written reflection and the "four beings" they name are sent to Gemini, which returns a verdict (`green` / `yellow` / `red_flag` / `red_block`) with a warm, human-readable headline and reason. `red_block` stops the applicant; `yellow` and `red_flag` can continue and are marked for admin review. If Gemini is temporarily overloaded (HTTP 503), the applicant is offered a "Skip and continue" option, recorded as `yellow` with admin review.
 - **Golden Ticket** — an optional numeric ticket, verified against Airtable and the applicant's name (see below).
-- **Relational Check-in quiz** — 39 themed sections (Imagination, Economics, the 7 Elements of Relations, Mentoring, Logic fallacies, Systems, etc.) covering 60+ questions, paginated one section at a time with slider inputs and dot progress. Answers are stored with the submission but are not scored or sent to the AI evaluation.
-- **Agreements** — after the quiz, the applicant reads each agreement (for example the Social Contract and Healthy Child Protection) and ticks every statement individually before continuing. Agreements and their statements are managed in the Wagtail CMS. What each applicant accepted is stored in the `Agreements Accepted` column as JSON: for each agreement, the slug and title, the revision they were shown and the one live at submission, a sha256 of the exact text, the statement ids they ticked, and `allAccepted`/`verified` flags. The server checks this against the live CMS before storing it ([agreements-consent.server.ts](src/lib/agreements-consent.server.ts)).
+- **Relational Check-in quiz** — 39 sections and 61 questions, grouped into five themes (Imagination, Seven Elements of Relations, Ways of Being, Logic, Indigenous Systems Design). Questions are split into cards of at most four, shown one or two cards per screen (10 screens), with slider inputs, XP per screen, and a milestone screen at the end of each theme (a blue page with a short transition video). Answers are stored with the submission but are not scored or sent to the AI evaluation. Paging is defined in [quiz.pages.ts](src/lib/quiz.pages.ts).
+- **Agreements** — after the quiz, the applicant reads each agreement (for example the Social Contract and Healthy Child Protection) and completes every item before continuing: statements are ticked individually, and multiple-choice questions are answered (when the CMS marks a correct answer, the applicant must choose it, with instant "That's right" / "Not quite" feedback). Agreements, statements and questions are managed in the Wagtail CMS. What each applicant accepted is stored in the `Agreements Accepted` column as JSON: for each agreement, the slug and title, the revision they were shown and the one live at submission, a sha256 of the exact text, the statement ids they ticked, each question with the answer chosen and whether it was correct, and `allAccepted`/`verified` flags. The server checks this against the live CMS before storing it ([agreements-consent.server.ts](src/lib/agreements-consent.server.ts)).
 - **River Run** — a gamified preview of the mentoring pathway stages that unlock after Ceremony-In (Meet your Mentor, Cohort Circle, First Ripple Project, River Council, Custodian).
-- **Progress saved in the browser** — in-progress answers are kept in `localStorage`, so a refresh or closed tab shows a "Welcome back" prompt on return. The saved progress is cleared on completion or when the applicant chooses to start fresh.
-- **Submissions to Airtable** — each completed ceremony is written to an Airtable table by a server function (see Environment variables).
+- **Leave and come back** — see [Save and resume](#save-and-resume) below.
+- **Submissions to Airtable** — a finished ceremony is written to an Airtable table by a server function (see Environment variables). Unfinished progress never leaves the browser.
+
+### Save and resume
+
+Applicants can leave at any point and return later; short notes on the Welcome screen and in the quiz tell them so.
+
+- **Saved locally, automatically.** Every change is written to `localStorage` on the applicant's own device (key `aime-ceremony-in:progress`): the step, all answers, the reflection verdict and the quiz position. It is never sent to a server, so it does not follow them to another browser or device.
+- **Continue or Start fresh.** When saved progress is found, the Welcome screen shows where they left off, with **Continue where you left off** as the main action and **Start fresh** beside it (it asks once before deleting anything). The usual "Begin" button is hidden until they choose, so a stray click cannot replace saved answers.
+- **No email reminders.** There is no "email me the rest" option.
+- **What reaches Airtable, and when.** Exactly one record per outcome, written by `submitCeremony` ([submit.functions.ts](src/lib/submit.functions.ts)): when the applicant finishes Agreements, or straight after a blocking (`red_block`) verdict. An applicant who is blocked, revises their reflection and gets through is recorded again when they finish.
+- **If the write fails.** The applicant still reaches River Run, but the saved copy is kept and River Run shows a "Try again" notice. They can also come back later and continue from Agreements. Saved progress is deleted only after Airtable has the submission, and River Run is never saved.
+- **Storage unavailable.** If the browser cannot store data, the guidance changes to ask them to finish in one sitting.
+
+The save/load code lives in [index.tsx](src/routes/index.tsx); the guidance text is [SaveNote.tsx](src/components/SaveNote.tsx).
 
 ### Golden Ticket
 
@@ -56,15 +69,17 @@ src/
     __root.tsx           # Root route: HTML shell, head tags, 404/error boundaries
     index.tsx             # The Ceremony-In wizard (steps, screens, state, progress saving)
   components/
-    QuizScreen.tsx         # Relational Check-in quiz UI (one section per screen)
+    FormNav.tsx            # The one Back / Next bar used by every step
+    QuizScreen.tsx         # Relational Check-in quiz: question cards, theme milestone screens
     AgreementsScreen.tsx   # Agreements step: per-statement acceptance
     LanguageCombobox.tsx   # Mother-tongue picker used on the identity step
-    AmbientBackground.tsx  # Animated background
+    SaveNote.tsx           # "Leave and come back later" guidance
     SplashScreen.tsx       # Intro splash
     XpToast.tsx            # XP gain toast
     ui/                    # shadcn/ui primitives (button, slider, dialog, ...)
   hooks/
     use-mobile.tsx / use-reduced-motion.ts
+    use-storage-available.ts  # Whether the browser can keep saved progress
   lib/
     evaluate.functions.ts  # Server function: Gemini reflection review + Golden Ticket rules
     submit.functions.ts    # Server function: writes a completed ceremony to Airtable
@@ -72,6 +87,7 @@ src/
     golden-ticket.functions.ts  # Server function used by the identity step (rate limited)
     wagtail.functions.ts   # Server functions: fetch Visa Paths and Agreements from Wagtail
     quiz.data.ts            # All 39 quiz sections/questions/scales
+    quiz.pages.ts           # Groups sections into themes, cards (max 4 questions) and screens
     languages.ts             # Language list for the mother-tongue combobox
     error-capture.ts / error-page.ts / lovable-error-reporting.ts
                               # SSR error handling + Lovable error reporting
@@ -80,7 +96,7 @@ src/
   start.ts                 # TanStack Start instance + server error middleware
   router.tsx                # Router setup
   styles.css                # Tailwind v4 theme tokens + animation keyframes
-public/design/              # Visa path art, icons and logo
+public/design/              # Visa path art, icons, logo and quiz transition videos
 apprunner.yaml              # AWS App Runner build/run config
 ```
 
@@ -133,7 +149,7 @@ python manage.py migrate
 python manage.py runserver
 ```
 
-Then set `WAGTAIL_API_URL=http://127.0.0.1:8000`. The API exposes `/api/v2/visapaths/` and `/api/v2/agreements/`, and content is edited in the Wagtail admin under Snippets. The frontend reads `WAGTAIL_API_URL` when the dev server starts, so restart `npm run dev` after changing it. If port 8000 is taken or reserved on your machine, run `python manage.py runserver 8001` and use that port in the URL instead.
+Then set `WAGTAIL_API_URL=http://127.0.0.1:8000`. The API exposes `/api/v2/visapaths/` and `/api/v2/agreements/`, and content is edited in the Wagtail admin under Content Management (Wagtail's Snippets). The frontend reads `WAGTAIL_API_URL` when the dev server starts, so restart `npm run dev` after changing it. If port 8000 is taken or reserved on your machine, run `python manage.py runserver 8001` and use that port in the URL instead.
 
 ### Run the dev server
 
@@ -142,6 +158,10 @@ npm run dev
 ```
 
 The app runs at `http://localhost:8080` by default (override with the `PORT` env var).
+
+## Hosting
+
+The app runs on a single AWS EC2 instance alongside the Wagtail CMS: Caddy on port 80 serves `/design/*` (images and videos, which need HTTP Range support for Safari) directly and proxies everything else to the Node app on port 3000. Both apps run as systemd services and read their secrets from root-only env files in `/etc/`. There is no SSH; the box is managed with AWS Systems Manager. Code is not cloned on the server: a `git archive` tarball of the committed branch is uploaded to the `ceremony-in` S3 bucket and a deploy script run over SSM builds and restarts the service, restoring the previous version automatically if anything fails. See [DEPLOYMENT.md](DEPLOYMENT.md) for the box layout and the full procedure.
 
 ## Scripts
 
