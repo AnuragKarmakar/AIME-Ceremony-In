@@ -46,7 +46,7 @@ export function BrainWheel({
         onClick={onSpin}
         disabled={disabled}
         aria-label={label}
-        className="absolute top-[6%] left-[6%] h-[88%] w-[88%] cursor-pointer touch-manipulation rounded-full focus-visible:ring-4 focus-visible:ring-gold focus-visible:ring-offset-4 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-default"
+        className="absolute top-[6%] left-[6%] h-[88%] w-[88%] cursor-pointer touch-manipulation overflow-hidden rounded-full focus-visible:ring-4 focus-visible:ring-gold focus-visible:ring-offset-4 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-default"
       >
         <img
           src="/design/unc/brain.webp"
