@@ -3,12 +3,7 @@
 // (same shape) and the wheel needs no other change.
 // `languages` is participant data used for matching; it is never displayed.
 
-export type UncWorld =
-  | "Cities"
-  | "Universities"
-  | "Systems Change"
-  | "Imagination Labs"
-  | "Joy";
+export type UncWorld = "Cities" | "Universities" | "Systems Change" | "Imagination Labs" | "Joy";
 
 export interface UncPerson {
   id: string;
