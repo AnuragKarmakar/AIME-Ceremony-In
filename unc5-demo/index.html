@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UNC5 Spin Wheel · Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@500&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--chalk:#232322;--raised:#2e2e2c;--cream:#fef4df;--muted:#c9bfae;--accent:#bb74f2;--focus:#fe85e9;--lemon:#e2e75e;--leaf:#6bac78;
+--display:Anton,Impact,'Arial Narrow',sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--chalk);color:var(--cream);font-family:'Space Grotesk',system-ui,sans-serif;font-size:16px;line-height:24px}
+button{font-family:inherit}
+button:focus-visible,a:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+[hidden]{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.label{font-family:var(--mono);font-size:13px;line-height:18px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
+.display{font-family:var(--display);font-weight:400;text-transform:uppercase;margin:0}
+.btn{border-radius:999px;padding:12px 24px;min-height:48px;cursor:pointer;transition:transform .15s ease;font-family:var(--mono);font-size:13px;line-height:18px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
+.btn:not(:disabled):hover{transform:translateY(-2px)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn-primary{background:var(--accent);color:var(--chalk);border:2px solid var(--accent)}
+.btn-secondary{background:transparent;color:var(--cream);border:2px solid var(--cream)}
+.rise{animation:rise .5s cubic-bezier(.2,.8,.2,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.rise{animation:none}.btn{transition:none}}
+
+.demobar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;padding:8px 16px;background:#000;border-bottom:1px solid #3a3a37}
+.demobar span{color:var(--muted);font-size:11px}
+.demobar button{background:transparent;color:var(--muted);border:1px solid #5a5650;border-radius:999px;padding:6px 12px;min-height:32px;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.demobar button[aria-pressed="true"]{background:var(--cream);color:var(--chalk);border-color:var(--cream)}
+
+header{max-width:1280px;margin:0 auto;padding:24px 64px;display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;height:48px;padding:0 16px;background:var(--cream);border-radius:8px}
+.logo img{display:block;height:28px;width:auto}
+.pill{font-family:var(--display);font-size:24px;line-height:32px;letter-spacing:.02em;text-transform:uppercase;color:var(--chalk);background:var(--leaf);padding:4px 16px;border-radius:999px}
+.toggle{display:flex;align-items:center;gap:12px;background:transparent;color:var(--cream);border:2px solid var(--cream);border-radius:999px;padding:8px 16px 8px 8px;min-height:48px;cursor:pointer}
+.track{position:relative;display:block;width:44px;height:24px;border-radius:999px;border:2px solid var(--cream);background:var(--chalk)}
+.knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--cream);transition:left .2s}
+.toggle[aria-pressed="true"] .track{background:var(--accent)}
+.toggle[aria-pressed="true"] .knob{left:22px}
+
+#intro{max-width:800px;margin:0 auto;padding:64px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:32px}
+.faces{display:flex;align-items:center;gap:12px}
+.q{width:64px;height:64px;border-radius:50%;background:var(--raised);border:2px dashed var(--muted);display:flex;align-items:center;justify-content:center}
+.q img{width:80%;height:80%}
+.you{width:96px;height:96px;border-radius:50%;background:var(--accent);border:3px solid #000;color:var(--chalk);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:32px;letter-spacing:.02em}
+#intro h1{font-size:72px;line-height:72px;letter-spacing:.01em}
+.lead{margin:0;max-width:560px;font-size:18px;line-height:28px;color:var(--muted)}
+
+#wheel{max-width:1280px;margin:0 auto;padding:16px 64px 64px;display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start}
+.stage{flex:999 1 520px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:24px}
+.heads{text-align:center;display:flex;flex-direction:column;gap:8px;min-height:84px}
+.heads h1{font-size:48px;line-height:52px;letter-spacing:.01em}
+.heads p{margin:0;color:var(--muted)}
+.wheelbox{position:relative;width:min(500px,100%);aspect-ratio:1/1}
+.dot{position:absolute;width:2.4%;height:2.4%;border-radius:50%;border:2px solid #000;background:var(--muted);transition:background .3s}
+.rim{position:absolute;left:5%;top:5%;width:90%;height:90%;border-radius:50%;background:var(--chalk);border:3px solid var(--cream);box-shadow:0 0 0 0 var(--lemon);transition:box-shadow .3s}
+.landed .rim{box-shadow:0 0 0 8px var(--lemon)}
+.landed .dot{background:var(--lemon)!important}
+#wheelBtn{position:absolute;left:6%;top:6%;width:88%;height:88%;padding:0;border:none;background:transparent;border-radius:50%;cursor:pointer;touch-action:manipulation}
+#wheelBtn:disabled{cursor:default}
+#brain{display:block;width:100%;height:100%;border-radius:50%;user-select:none;-webkit-user-drag:none}
+.pointer{position:absolute;left:50%;top:0;width:44px;height:48px;transform:translateX(-50%);transform-origin:50% 0;transition:transform .3s}
+.landed .pointer{transform:translateX(-50%) scale(1.18)}
+.tagline{margin:0;max-width:560px;text-align:center;font-size:32px;line-height:36px;letter-spacing:.02em}
+.tagline span,.hl{color:var(--lemon)}
+.controls{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
+
+aside{flex:1 1 360px;min-width:0;display:flex;flex-direction:column;gap:32px;padding-top:16px}
+.prog{display:flex;flex-direction:column;gap:8px}
+.progrow{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.bars{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.bar{display:block;height:12px;border-radius:999px;border:2px solid var(--cream);background:var(--chalk);transition:background .3s}
+.bar.on{background:var(--accent)}
+.card{background:var(--raised);border:2px solid var(--cream);border-radius:28px;padding:24px;display:flex;flex-direction:column;gap:24px}
+.cardtop{display:flex;align-items:center;gap:16px}
+.avatar{flex-shrink:0;width:96px;height:96px;border-radius:50%;border:3px solid #000;display:flex;align-items:center;justify-content:center}
+.card h2{font-size:48px;line-height:52px;letter-spacing:.01em}
+dl{margin:0;border-bottom:1px solid var(--muted)}
+dl div{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--muted)}
+dt{color:var(--muted)}dd{margin:0;font-weight:700;text-align:right}
+.waiting{border:2px dashed var(--muted);border-radius:28px;padding:24px;display:flex;align-items:center;gap:16px;min-height:128px}
+.waiting .q{flex-shrink:0;font-family:var(--display);font-size:32px}
+.waiting p{margin:0;font-size:18px;line-height:28px;color:var(--muted)}
+.chips{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+.chips li{display:flex;align-items:center;gap:12px;background:var(--raised);border:2px solid var(--cream);border-radius:8px;padding:8px 12px 8px 8px;font-size:14px;line-height:20px}
+.chips .ini{width:32px;height:32px;border-radius:50%;border:2px solid #000;display:flex;align-items:center;justify-content:center;color:var(--chalk);font-weight:700}
+
+#final{max-width:1040px;margin:0 auto;padding:16px 64px 64px;display:flex;flex-direction:column;align-items:center;gap:24px;text-align:center}
+#final h1{font-size:72px;line-height:72px;letter-spacing:.01em}
+.ring{position:relative;width:min(560px,100%);aspect-ratio:560/480}
+.ring .orbit{position:absolute;left:14%;top:16%;width:72%;height:68%;border-radius:50%;border:2px dashed var(--muted)}
+.ring .ph{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:128px;height:128px;border-radius:50%;border:2px dashed var(--muted);display:flex;align-items:center;justify-content:center;padding:16px;color:var(--muted);font-size:11px;line-height:16px}
+.ring ul{margin:0;padding:0;list-style:none}
+.node{position:absolute;transform:translate(-50%,-44px);width:160px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.node .avatar{width:88px;height:88px}
+.node b{font-size:18px;line-height:28px}
+.node small{font-size:14px;line-height:20px;color:var(--muted)}
+
+@media (max-width:720px){
+  header{padding:16px 24px}
+  .logo{height:44px;padding:0 12px}.logo img{height:24px}
+  .pill{display:none}
+  .toggle{padding:8px 12px 8px 8px;min-height:44px}
+  #intro{padding:24px;gap:24px}
+  #intro h1{font-size:48px;line-height:52px}
+  .q{width:48px;height:48px}.you{width:64px;height:64px;font-size:24px}
+  #wheel{padding:8px 24px 32px;gap:32px}
+  .heads h1{font-size:32px;line-height:36px}
+  .tagline{font-size:24px;line-height:32px}
+  .controls{flex-direction:column;width:100%}
+  .controls .btn{width:100%}
+  .card h2{font-size:48px;line-height:52px}
+  .avatar{width:80px;height:80px}
+  #final{padding:8px 24px 32px}
+  #final h1{font-size:32px;line-height:36px}
+  .ring{aspect-ratio:342/340}
+  .node{width:104px;transform:translate(-50%,-32px);gap:4px}
+  .node .avatar{width:64px;height:64px}
+  .node .avatar svg{width:44px;height:44px}
+  .node b{font-size:14px;line-height:20px}
+  .node small{font-size:11px;line-height:16px}
+  .ring .ph{width:96px;height:96px;padding:8px}
+}
+</style>
+</head>
+<body>
+<div class="demobar" role="group" aria-label="Demo controls (not part of the participant experience)">
+<span class="label">Demo view:</span>
+<button id="modeFirst" aria-pressed="true">First participant</button>
+<button id="modeJoin" aria-pressed="false">Joining a group</button>
+</div>
+<p class="sr" aria-live="polite" id="live"></p>
+
+<header>
+<div class="brand">
+<span class="logo"><img src="assets/unc-logo.png" alt="UNC"></span>
+<span class="pill">Unlikely Connections</span>
+</div>
+<button class="toggle label" id="reduceBtn" aria-pressed="false"><span class="track" aria-hidden="true"><span class="knob"></span></span>Reduce motion</button>
+</header>
+
+<main id="intro">
+<div class="faces" aria-hidden="true">
+<div class="q"><img src="assets/qm-violet.png" alt=""></div>
+<div class="q"><img src="assets/qm-lemon.png" alt=""></div>
+<div class="you">YOU</div>
+<div class="q"><img src="assets/qm-tangerine.png" alt=""></div>
+<div class="q"><img src="assets/qm-violet.png" alt=""></div>
+</div>
+<h1 class="display">Meet your <span class="hl">Unlikely</span> Connections</h1>
+<p class="lead">Four people you probably wouldn't meet in everyday life. They weren't chosen because you're alike. They were chosen because you're not.</p>
+<p style="margin:0;font-weight:700">Together, you'll be a group of five: your UNC5.</p>
+<button class="btn btn-primary" id="startBtn">Start discovering</button>
+<p style="margin:0;font-size:14px;line-height:20px;color:var(--muted)">Prefer less motion? Turn on Reduce motion and reveal each person with a button.</p>
+</main>
+
+<main id="wheel" hidden>
+<section class="stage" aria-label="Discovery wheel">
+<div class="heads">
+<h1 class="display" id="headline"></h1>
+<p id="subline"></p>
+</div>
+<div class="wheelbox" id="wheelbox">
+<div id="dots" aria-hidden="true"></div>
+<div class="rim" aria-hidden="true"></div>
+<button id="wheelBtn" aria-label="Spin the wheel to reveal your next connection"><img id="brain" src="assets/brain.webp" alt="" draggable="false"></button>
+<span class="pointer" aria-hidden="true"><svg viewBox="0 0 44 48" width="44" height="48"><path d="M4 4 L40 4 L22 44 Z" fill="#e2e75e" stroke="#000" stroke-width="3" stroke-linejoin="round"/></svg></span>
+</div>
+<p class="display tagline">Designing AIME's <span>Unlikely Connections</span> for a Fairer World</p>
+<div class="controls">
+<button class="btn btn-primary" id="spinBtn">Spin the wheel</button>
+<button class="btn btn-secondary" id="skipBtn">Reveal without spinning</button>
+<button class="btn btn-primary" id="revealBtn" hidden>Reveal next</button>
+<button class="btn btn-primary" id="finalBtn" hidden>Meet your UNC5</button>
+</div>
+</section>
+<aside aria-label="Your connections">
+<div class="prog">
+<div class="progrow label"><span style="color:var(--muted)">Your UNC5</span><span id="progText"></span></div>
+<div class="bars" role="progressbar" aria-label="Connections revealed" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" id="bars">
+<span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+</div>
+</div>
+<article class="card" id="card" hidden>
+<div class="cardtop">
+<div class="avatar" id="cardAvatar"></div>
+<div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+<span class="label" style="color:var(--lemon)" id="cardNum"></span>
+<h2 class="display" id="cardName"></h2>
+</div>
+</div>
+<dl id="cardDetails"></dl>
+<p style="margin:0"><span class="label" style="color:var(--lemon)">Say hello: </span><span id="cardStarter"></span></p>
+</article>
+<div class="waiting" id="waiting">
+<div class="q" aria-hidden="true">?</div>
+<p id="waitingText">Your next connection will appear here.</p>
+</div>
+<div id="revealedWrap" hidden style="display:flex;flex-direction:column;gap:12px">
+<h3 class="label" style="margin:0;color:var(--muted)">Revealed so far</h3>
+<ul class="chips" id="chips"></ul>
+</div>
+</aside>
+</main>
+
+<main id="final" hidden>
+<span class="label" style="color:var(--lemon)">Your UNC5 is complete</span>
+<h1 class="display">Five people. Five different worlds.</h1>
+<p class="lead">Different places, paths and stories. That's the point. Start with hello and let curiosity do the rest.</p>
+<div class="ring">
+<div class="orbit" aria-hidden="true"></div>
+<span class="ph label">[ UNC5 logo ]</span>
+<ul id="nodes"></ul>
+</div>
+<div class="controls">
+<button class="btn btn-primary" id="helloBtn">Say hello to your group</button>
+<button class="btn btn-secondary" id="restartBtn">Start over</button>
+</div>
+</main>
+
+<script>
+// SAMPLE DATA ONLY. Design prototype: no real matching or group assignment.
+// "languages" is participant data used for matching; it is never displayed.
+var GROUP = [
+  { id: "l", name: "Leila", country: "Jordan", visa: "[Visa Path E]", background: "Volunteers at a city library", languages: ["English", "Arabic"], color: "#fe85e9", starter: "ask about a book that changed their mind." },
+  { id: "a", name: "Amara", country: "Ghana", visa: "[Visa Path A]", background: "Grew up in a coastal fishing town", languages: ["English", "Twi", "French"], color: "#e2e75e", starter: "ask about a place that feels like home." },
+  { id: "m", name: "Mateo", country: "Chile", visa: "[Visa Path B]", background: "Works nights at the family bakery", languages: ["Spanish", "English"], color: "#ff7c51", starter: "ask what they would change about school." },
+  { id: "k", name: "Kiri", country: "Aotearoa New Zealand", visa: "[Visa Path C]", background: "Raised by grandparents on a farm", languages: ["English", "te reo Māori"], color: "#6bac78", starter: "ask who taught them the most." },
+  { id: "y", name: "Yusuf", country: "Türkiye", visa: "[Visa Path D]", background: "First in family at university", languages: ["Turkish", "English", "German"], color: "#bb74f2", starter: "ask about something they made recently." }
+];
+// Path 1: first participant (Leila), full reveal in any order.
+// Path 2: later participant (Mateo) joining Leila's saved group; the wheel always lands on the other four in this order.
+var MODES = { first: { me: "l", order: null }, join: { me: "m", order: ["l", "a", "k", "y"] } };
+// Pointer landing angles (degrees clockwise from the top of the brain): middle of the purple, pink, teal and red lobes.
+var LANDING_ANGLES = [28, 138, 218, 339];
+var MEET_MS = 4000;
+var AVATAR = '<svg viewBox="0 0 48 48" width="64" height="64" aria-hidden="true"><circle cx="24" cy="18" r="8" fill="none" stroke="#000" stroke-width="3"/><path d="M9 42c2-9 8-13 15-13s13 4 15 13" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round"/></svg>';
+
+var $ = function (id) { return document.getElementById(id); };
+var S = { mode: "first", screen: "intro", revealed: [], current: null, rot: 0, spinning: false, landed: false, showCard: false, meet: false, reduce: false };
+var timers = [];
+function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+function people() { var me = MODES[S.mode].me; return GROUP.filter(function (p) { return p.id !== me; }); }
+function byId(id) { return GROUP.filter(function (p) { return p.id === id; })[0]; }
+function live(t) { $("live").textContent = t; }
+function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+try { if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) S.reduce = true; } catch (e) {}
+
+// rim lights
+(function () {
+  var h = "";
+  for (var k = 0; k < 16; k++) {
+    var r = k * 22.5 * Math.PI / 180;
+    h += '<span class="dot" style="left:' + (50 + 48 * Math.sin(r) - 1.2).toFixed(2) + '%;top:' + (50 - 48 * Math.cos(r) - 1.2).toFixed(2) + '%;background:' + (k % 2 ? "#2e2e2c" : "#c9bfae") + '"></span>';
+  }
+  $("dots").innerHTML = h;
+})();
+
+function pickNext() {
+  var order = MODES[S.mode].order, rev = S.revealed;
+  if (order) { var id = order.filter(function (x) { return rev.indexOf(x) < 0; })[0]; return id ? byId(id) : null; }
+  var left = people().filter(function (p) { return rev.indexOf(p.id) < 0; });
+  return left.length ? left[Math.floor(Math.random() * left.length)] : null;
+}
+function targetRot(idx) {
+  var c = LANDING_ANGLES[idx], target = (360 - c) % 360, cur = S.rot;
+  var base = cur - (((cur % 360) + 360) % 360) + 360 * 5 + target;
+  while (base - cur < 1440) base += 360;
+  return base;
+}
+function liveFor(p, n) { return "Connection " + n + " of 4: " + p.name + ", from " + p.country + "."; }
+
+function spin() {
+  if (S.spinning || S.revealed.length >= 4) return;
+  if (S.reduce) { revealNow(); return; }
+  var p = pickNext();
+  clearTimers();
+  S.spinning = true; S.landed = false; S.showCard = false; S.meet = false; S.current = p.id;
+  S.rot = targetRot(people().indexOf(p));
+  live("Spinning.");
+  render(true);
+  timers.push(setTimeout(function () {
+    S.spinning = false; S.landed = true; S.meet = true; S.revealed.push(p.id); render();
+    timers.push(setTimeout(function () {
+      S.showCard = true; live(liveFor(p, S.revealed.length)); render();
+      timers.push(setTimeout(function () { S.meet = false; render(); }, MEET_MS));
+    }, 700));
+  }, 4300));
+}
+function revealNow() {
+  if (S.spinning || S.revealed.length >= 4) return;
+  var p = pickNext();
+  clearTimers();
+  S.current = p.id; S.rot = targetRot(people().indexOf(p)); S.spinning = false; S.landed = true; S.showCard = true; S.meet = true;
+  S.revealed.push(p.id);
+  live(liveFor(p, S.revealed.length));
+  render();
+  timers.push(setTimeout(function () { S.meet = false; render(); }, MEET_MS));
+}
+function reset(screen) {
+  clearTimers();
+  S.screen = screen; S.revealed = []; S.current = null; S.rot = 0; S.spinning = false; S.landed = false; S.showCard = false; S.meet = false;
+  live(""); render();
+}
+
+function render(animate) {
+  var n = S.revealed.length, allDone = n >= 4, cur = S.current ? byId(S.current) : null;
+  $("modeFirst").setAttribute("aria-pressed", S.mode === "first");
+  $("modeJoin").setAttribute("aria-pressed", S.mode === "join");
+  $("reduceBtn").setAttribute("aria-pressed", S.reduce);
+  $("intro").hidden = S.screen !== "intro";
+  $("wheel").hidden = S.screen !== "wheel";
+  $("final").hidden = S.screen !== "final";
+
+  // headline
+  var h, sub;
+  if (S.spinning) { h = "Spinning…"; sub = "Someone unlikely is on the way."; }
+  else if (S.meet && cur) { h = "Meet " + cur.name; sub = cur.country; }
+  else if (allDone) { h = "All four are here"; sub = "Your group of five is ready."; }
+  else if (n === 0) { h = "Who will you meet first?"; sub = S.reduce ? "Select Reveal next to meet your first connection." : "Tap or swipe the wheel to spin."; }
+  else { h = "Ready for number " + (n + 1) + "?"; sub = S.reduce ? "Select Reveal next when you're ready." : "Spin again to meet your next connection."; }
+  $("headline").textContent = h; $("subline").textContent = sub;
+
+  // wheel
+  var brain = $("brain");
+  brain.style.transition = (animate && !S.reduce) ? "transform 4.2s cubic-bezier(0.15, 0.85, 0.2, 1)" : "none";
+  brain.style.transform = "rotate(" + S.rot + "deg)";
+  $("wheelbox").classList.toggle("landed", S.landed);
+  var wb = $("wheelBtn");
+  wb.disabled = S.spinning || allDone;
+  wb.setAttribute("aria-label", allDone ? "All connections revealed" : (S.reduce ? "Reveal your next connection" : "Spin the wheel to reveal your next connection"));
+  $("spinBtn").hidden = S.reduce || allDone; $("skipBtn").hidden = S.reduce || allDone;
+  $("spinBtn").disabled = $("skipBtn").disabled = S.spinning;
+  $("revealBtn").hidden = !S.reduce || allDone;
+  $("finalBtn").hidden = !allDone;
+
+  // progress
+  $("progText").textContent = n + " of 4 · " + (n * 25) + "% revealed";
+  $("bars").setAttribute("aria-valuenow", n);
+  Array.prototype.forEach.call($("bars").children, function (b, k) { b.classList.toggle("on", k < n); });
+
+  // card
+  var card = $("card");
+  if (S.showCard && cur) {
+    var wasHidden = card.hidden;
+    card.hidden = false;
+    if (wasHidden && !S.reduce) { card.classList.remove("rise"); void card.offsetWidth; card.classList.add("rise"); }
+    $("cardAvatar").style.background = cur.color; $("cardAvatar").innerHTML = AVATAR;
+    $("cardNum").textContent = "Connection " + (S.revealed.indexOf(cur.id) + 1) + " of 4";
+    $("cardName").textContent = cur.name;
+    $("cardDetails").innerHTML = [["Country", cur.country], ["Visa Path", cur.visa], ["Background", cur.background]]
+      .map(function (r) { return "<div><dt>" + esc(r[0]) + "</dt><dd>" + esc(r[1]) + "</dd></div>"; }).join("");
+    $("cardStarter").textContent = cur.starter;
+  } else { card.hidden = true; }
+  $("waiting").hidden = S.showCard && !!cur;
+  $("waitingText").textContent = (S.spinning || (S.landed && !S.showCard)) ? "Finding someone unlikely…" : "Your next connection will appear here.";
+
+  // chips
+  $("revealedWrap").hidden = n === 0;
+  $("chips").innerHTML = S.revealed.map(function (id) {
+    var p = byId(id);
+    return '<li><span class="ini" aria-hidden="true" style="background:' + p.color + '">' + esc(p.name.charAt(0)) + "</span><span><strong>" + esc(p.name) + "</strong> · " + esc(p.country) + "</span></li>";
+  }).join("");
+
+  // final: the saved group, identical for all five members
+  if (S.screen === "final") {
+    $("nodes").innerHTML = GROUP.map(function (p, k) {
+      var r = (k * 72 - 90) * Math.PI / 180;
+      return '<li class="node' + (S.reduce ? "" : " rise") + '" style="left:' + (50 + 36 * Math.cos(r)).toFixed(2) + "%;top:" + (50 + 34 * Math.sin(r)).toFixed(2) + '%"><span class="avatar" aria-hidden="true" style="background:' + p.color + '">' + AVATAR + "</span><b>" + esc(p.name) + "</b><small>" + esc(p.country) + "</small></li>";
+    }).join("");
+  }
+}
+
+$("modeFirst").onclick = function () { S.mode = "first"; reset("intro"); };
+$("modeJoin").onclick = function () { S.mode = "join"; reset("intro"); };
+$("reduceBtn").onclick = function () { S.reduce = !S.reduce; render(); };
+$("startBtn").onclick = function () { S.screen = "wheel"; render(); };
+$("wheelBtn").onclick = spin;
+$("spinBtn").onclick = spin;
+$("skipBtn").onclick = revealNow;
+$("revealBtn").onclick = revealNow;
+$("finalBtn").onclick = function () { clearTimers(); S.screen = "final"; S.showCard = false; S.landed = false; S.meet = false; live("Your UNC5 group of five is complete."); render(); window.scrollTo(0, 0); };
+$("helloBtn").onclick = function () { live("Opening your group chat."); };
+$("restartBtn").onclick = function () { reset("intro"); };
+render();
+</script>
+</body>
+</html>
