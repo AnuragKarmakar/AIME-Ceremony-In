@@ -966,7 +966,7 @@ function CeremonyHeader({
         <div
           className="inline-flex items-center gap-2.5"
           role="img"
-          aria-label={`Progress: ${ringPct} percent complete, ${xp} XP earned`}
+          aria-label={`Progress: ${ringPct} percent complete, ${xp} Energy earned`}
         >
           <div
             className="grid h-11 w-11 shrink-0 place-items-center rounded-full transition-[background] duration-500"
@@ -979,7 +979,7 @@ function CeremonyHeader({
             </div>
           </div>
           <div>
-            <div className="font-mono text-[13px] font-bold text-[var(--step-fg)]">{xp} XP</div>
+            <div className="font-mono text-[13px] font-bold text-[var(--step-fg)]">{xp} Energy</div>
             <div className="font-mono text-[9px] tracking-[0.06em] text-[var(--step-label)] uppercase">
               {ringPct}% complete
             </div>
@@ -1902,7 +1902,7 @@ function JourneyScreen({
           Eight levels in. Here is what opened up, and what is still waiting further down the river.
         </p>
         <ul className="mt-5 flex list-none flex-wrap gap-2 p-0" aria-label="Your River Run so far">
-          <JourneyChip>+{xp} XP earned</JourneyChip>
+          <JourneyChip>+{xp} Energy earned</JourneyChip>
           <JourneyChip>{openCount} stages open</JourneyChip>
           <JourneyChip>{waitingCount} still waiting</JourneyChip>
         </ul>

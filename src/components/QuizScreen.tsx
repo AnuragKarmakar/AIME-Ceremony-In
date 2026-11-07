@@ -173,7 +173,7 @@ export function QuizScreen({
         backLabel={isFirst ? "Back to your Ceremony" : "Back"}
         onNext={goNext}
         nextLabel={isLast ? "Continue" : "Next"}
-        label={`Screen ${screenIdx + 1} of ${QUIZ_SCREENS.length} · +${xpForScreen} XP`}
+        label={`Screen ${screenIdx + 1} of ${QUIZ_SCREENS.length} · +${xpForScreen} Energy`}
       />
     </>
   );
@@ -306,7 +306,7 @@ function ThemeReward({
         aria-label="Your progress so far"
       >
         <XpTile label="This theme" value={`+${themePages * XP_PER_QUIZ_PAGE}`} />
-        <XpTile label="Total XP" value={String(totalXp)} />
+        <XpTile label="Total Energy" value={String(totalXp)} />
         <XpTile label="Answered" value={`${answered}/${TOTAL_QUESTIONS}`} />
       </ul>
 

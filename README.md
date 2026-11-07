@@ -6,11 +6,11 @@ Live: http://3.217.19.123/
 
 ## Features
 
-- **8-step guided ceremony** — Welcome → Visa Path → Who you are → Your story → Ceremony (verdict) → Relational Check-in → Agreements → River Run, with animated forward/back transitions, XP and level progress, and a solid background colour per step that fades between steps. One shared navigation bar (`FormNav`) handles Back / Next on every step.
+- **8-step guided ceremony** — Welcome → Visa Path → Who you are → Your story → Ceremony (verdict) → Relational Check-in → Agreements → River Run, with animated forward/back transitions, Energy and level progress, and a solid background colour per step that fades between steps. One shared navigation bar (`FormNav`) handles Back / Next on every step.
 - **Visa Paths** — five entry doorways into the movement (Joy Corp, IMAGI-NATION Presidents, IMAGI-NATION Schools, Systems Change Citizens, Indigenous Knowledge Systems Labs). Their copy (name, tagline, description, order) comes from the Wagtail CMS; icons, colours and banners stay in the frontend.
 - **AI-reviewed reflection** — the applicant's written reflection and the "four beings" they name are sent to Gemini, which returns a verdict (`green` / `yellow` / `red_flag` / `red_block`) with a warm, human-readable headline and reason. `red_block` stops the applicant; `yellow` and `red_flag` can continue and are marked for admin review. If Gemini is temporarily overloaded (HTTP 503), the applicant is offered a "Skip and continue" option, recorded as `yellow` with admin review.
 - **Golden Ticket** — an optional numeric ticket, verified against Airtable and the applicant's name (see below).
-- **Relational Check-in quiz** — 39 sections and 61 questions, grouped into five themes (Imagination, Seven Elements of Relations, Ways of Being, Logic, Indigenous Systems Design). Questions are split into cards of at most four, shown one or two cards per screen (10 screens), with slider inputs, XP per screen, and a milestone screen at the end of each theme (a blue page with a short transition video). Answers are stored with the submission but are not scored or sent to the AI evaluation. Paging is defined in [quiz.pages.ts](src/lib/quiz.pages.ts).
+- **Relational Check-in quiz** — 39 sections and 61 questions, grouped into five themes (Imagination, Seven Elements of Relations, Ways of Being, Logic, Indigenous Systems Design). Questions are split into cards of at most four, shown one or two cards per screen (10 screens), with slider inputs, Energy per screen, and a milestone screen at the end of each theme (a blue page with a short transition video). Answers are stored with the submission but are not scored or sent to the AI evaluation. Paging is defined in [quiz.pages.ts](src/lib/quiz.pages.ts).
 - **Agreements** — after the quiz, the applicant reads each agreement (for example the Social Contract and Healthy Child Protection) and completes every item before continuing: statements are ticked individually, and multiple-choice questions are answered (when the CMS marks a correct answer, the applicant must choose it, with instant "That's right" / "Not quite" feedback). Agreements, statements and questions are managed in the Wagtail CMS. What each applicant accepted is stored in the `Agreements Accepted` column as JSON: for each agreement, the slug and title, the revision they were shown and the one live at submission, a sha256 of the exact text, the statement ids they ticked, each question with the answer chosen and whether it was correct, and `allAccepted`/`verified` flags. The server checks this against the live CMS before storing it ([agreements-consent.server.ts](src/lib/agreements-consent.server.ts)).
 - **River Run** — a gamified preview of the mentoring pathway stages that unlock after Ceremony-In (Meet your Mentor, Cohort Circle, First Ripple Project, River Council, Custodian).
 - **Leave and come back** — see [Save and resume](#save-and-resume) below.
@@ -75,7 +75,7 @@ src/
     LanguageCombobox.tsx   # Mother-tongue picker used on the identity step
     SaveNote.tsx           # "Leave and come back later" guidance
     SplashScreen.tsx       # Intro splash
-    XpToast.tsx            # XP gain toast
+    XpToast.tsx            # Energy gain toast
     ui/                    # shadcn/ui primitives (button, slider, dialog, ...)
   hooks/
     use-mobile.tsx / use-reduced-motion.ts
