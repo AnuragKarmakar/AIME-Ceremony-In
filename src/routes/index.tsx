@@ -53,33 +53,44 @@ const STEPS: { key: StepKey; label: string }[] = [
   { key: "journey", label: "River Run" },
 ];
 
-/**
- * One solid background per step (the design's level swatches: solids reduce
- * visual anxiety, unlike gradients). Steps are matched to swatches by name;
- * "Who you are" has no swatch of its own and takes Systems. Light
- * backgrounds switch the text on them to dark ink for contrast.
- */
-const STEP_THEME: Record<StepKey, { bg: string; tone: "dark" | "light" }> = {
-  welcome: { bg: "#47289F", tone: "dark" }, // L1 Welcome
-  path: { bg: "#571397", tone: "dark" }, // L2 Visa Path
-  identity: { bg: "#005454", tone: "dark" }, // L6 Systems
-  story: { bg: "#0404AC", tone: "dark" }, // L3 Your Story
-  result: { bg: "#7989FF", tone: "light" }, // L8 Ceremony
-  quiz: { bg: "#CFC52C", tone: "light" }, // L4 Practice
-  agreements: { bg: "#AA2E00", tone: "dark" }, // L7 Commitments
-  journey: { bg: "#2D712A", tone: "dark" }, // L5 Mentoring
+type StepTheme = {
+  bg: string;
+  tone: "dark" | "light";
+  /** Gold labels fall below 4.5:1 on this background, so labels use cream. */
+  creamLabel?: boolean;
 };
 
+/**
+ * Approved step backgrounds (the design's level swatches: solids reduce
+ * visual anxiety, unlike gradients). Each step draws one at random; bright
+ * mustard (#CFC52C) was removed after design review. Light backgrounds switch
+ * the text on them to dark ink for contrast.
+ */
+const STEP_PALETTE: StepTheme[] = [
+  { bg: "#47289F", tone: "dark" }, // Indigo (first screen, before any step change)
+  { bg: "#571397", tone: "dark" },
+  { bg: "#005454", tone: "dark" },
+  { bg: "#0404AC", tone: "dark" },
+  { bg: "#7989FF", tone: "light" },
+  { bg: "#AA2E00", tone: "dark", creamLabel: true },
+  { bg: "#2D712A", tone: "dark", creamLabel: true },
+];
+
+/** Picks a random approved background, never the one already showing. */
+function pickStepTheme(current: StepTheme): StepTheme {
+  const options = STEP_PALETTE.filter((theme) => theme !== current);
+  return options[Math.floor(Math.random() * options.length)];
+}
+
 /** CSS variables for text and accents that sit directly on the step background. */
-function stepThemeVars(step: StepKey): React.CSSProperties {
-  const { bg, tone } = STEP_THEME[step];
+function stepThemeVars({ bg, tone, creamLabel }: StepTheme): React.CSSProperties {
   const vars =
     tone === "dark"
       ? {
           "--step-fg": "oklch(0.99 0.01 85)",
-          "--step-fg-soft": "oklch(0.99 0.01 85 / 0.82)",
+          "--step-fg-soft": "oklch(0.99 0.01 85 / 0.88)",
           "--step-fg-faint": "oklch(0.99 0.01 85 / 0.25)",
-          "--step-label": "var(--color-gold)",
+          "--step-label": creamLabel ? "oklch(0.99 0.01 85)" : "var(--color-gold)",
           "--step-highlight": "var(--color-gold)",
           // Form navigation's primary action (the design's gold "NEXT" pill).
           "--step-cta-bg": "#D4BF5C",
@@ -87,7 +98,7 @@ function stepThemeVars(step: StepKey): React.CSSProperties {
         }
       : {
           "--step-fg": "var(--color-ink)",
-          "--step-fg-soft": "oklch(0.16 0.02 280 / 0.75)",
+          "--step-fg-soft": "oklch(0.16 0.02 280 / 0.82)",
           "--step-fg-faint": "oklch(0.16 0.02 280 / 0.22)",
           "--step-label": "var(--color-ink)",
           "--step-highlight": "oklch(0.99 0.01 85)",
@@ -348,9 +359,20 @@ function CeremonyIn() {
   const [direction, setDirection] = useState<"forward" | "back">("forward");
   const step = STEPS[stepIdx].key;
 
+  // Background for the current step. Starts on the first palette colour so the
+  // server and client render the same thing, then a new colour is drawn only
+  // when the step changes (never during render), so it can't change mid-step.
+  const [stepTheme, setStepTheme] = useState(STEP_PALETTE[0]);
+  const themedStepIdx = useRef(0);
   useEffect(() => {
-    document.body.style.backgroundColor = STEP_THEME[step].bg;
-  }, [step]);
+    if (themedStepIdx.current === stepIdx) return;
+    themedStepIdx.current = stepIdx;
+    setStepTheme((current) => pickStepTheme(current));
+  }, [stepIdx]);
+
+  useEffect(() => {
+    document.body.style.backgroundColor = stepTheme.bg;
+  }, [stepTheme]);
 
   // Gently return to the top whenever the step changes so each screen
   // starts in view instead of wherever the last one was scrolled to.
@@ -767,7 +789,7 @@ function CeremonyIn() {
   const pathName = paths.find((p) => p.id === form.path)?.name ?? null;
 
   return (
-    <div className="step-theme" style={stepThemeVars(step)}>
+    <div className="step-theme" style={stepThemeVars(stepTheme)}>
       <SplashScreen />
       <div aria-hidden="true" className="fixed inset-0" style={{ background: "var(--step-bg)" }} />
       <XpToast show={showXpToast} amount={xpToastAmount} />
@@ -1073,7 +1095,7 @@ function WelcomeScreen({
         <span aria-hidden="true">✦</span> You are welcome here
       </div>
       <h1 className="mt-5 text-[46px] leading-[0.98] text-ink">
-        Step into the <span style={{ color: STEP_THEME.welcome.bg }}>Ceremony-In</span>.
+        Step into the <span style={{ color: STEP_PALETTE[0].bg }}>Ceremony-In</span>.
       </h1>
       <p className="mt-4 max-w-md text-base leading-relaxed text-ink/65">
         This is where you meet the movement. A few gentle questions, a story you bring with you, and
@@ -1406,7 +1428,7 @@ function PathScreen({
               <span className="text-[var(--step-fg-soft)]">Status</span>
               <span
                 className="font-bold"
-                style={{ color: activeChosen ? "var(--color-gold)" : "var(--step-fg-soft)" }}
+                style={{ color: activeChosen ? "var(--step-label)" : "var(--step-fg-soft)" }}
               >
                 {activeChosen ? "✓ Chosen" : "Not selected yet"}
               </span>
